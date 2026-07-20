@@ -45,6 +45,9 @@
 | D9 | 2026-07-20 | PyTorch 安裝：pyproject 用 `[[tool.uv.index]] name="pytorch-cu128" explicit=true` + `[tool.uv.sources]` **同時鎖 torch 與 torchvision** | Windows PyPI 預設 torch wheel 是 CPU-only；torchvision 漏鎖會回退 PyPI 拿到 CPU 版。uv 官方 PyTorch 整合指南 |
 | D10 | 2026-07-20 | Repo 採 src layout：`src/fallguard/` + hatchling；推論介面為 `python -m fallguard.detect`（原構想 `src/detect.py` 改為套件化，利於 pytest 與打包） | 對齊 pytest/打包慣例 |
 | D11 | 2026-07-20 | 跌倒確認秒數雙值分離：**評估用 N=2s**（URFD 片段短，N 太大測不到）、**部署預設 N=10s**（居家誤報成本高）。`FALL_CONFIRM_SECONDS` 進 .env，README 說明兩值差異 | 評估值與部署值分離是誠實方法論；URFD 片段長度限制 |
+| D12 | 2026-07-21 | **`urfall-cam0-adls.csv` 的 label 欄位不能直接當「是否跌倒」的正解**：40 段 ADL 中有 16 段含 label=1 的幀（實測 `adl-10/11/21-23/30-40`，每段 61–181 幀不等）。這是 URFD 官方共用的「姿態是否水平」深度幾何特徵，只反映身體姿勢、不反映事件語意——ADL 定義上不含跌倒事件，這些是「已躺床」片段被同一套幾何規則標成 1。**規則**：`kind=="fall"` 的 label=1 才是正例；`kind=="adl"` 一律是負例，不論 raw_label 為何。`prepare_data.py` 的 npz 保留 `raw_label` 原始值（可稽核）+ `kind` 欄位，由下游（Phase 2 features.py / evaluate.py）依此規則推導訓練用的 task label，不得直接拿 raw_label 訓練。這批「label=1 的 ADL 幀」正好是 §1.3 誤報分析要的「躺床」困難負樣本，之後可交叉比對使用者人工標的 `action_category`。同時更正 Phase 1 DoD 原寫的「標籤對齊容許 ±1 幀」：實測 `fall-01`（160 幀/160 列，csv frame_num 1-160）與 `adl-01`（150 幀，csv 覆蓋 frame_num 6-150 且有 1 個缺口）確認對齊公式為精確值 `csv frame_num - 1 = 影片幀索引(0-indexed)`，非模糊容忍；CSV 未覆蓋的幀在 npz 用 `label_present=False` 標記，不用容忍區間 | 2026-07-21 用 awk 直接統計 `data/raw/urfd/urfall-cam0-adls.csv` 各段 label=1 幀數,並用 cv2 讀 fall-01/adl-01 實際幀數與 csv frame_num 範圍比對驗證索引公式 |
+| D13 | 2026-07-21 | `data/urfd_meta.csv`（人工標註,1-2 小時心血,無法從程式碼重現）與 `data/splits.json`（評估協定,由前者衍生,審閱者最想看到的稽核依據）**例外進 git**,不受第 5 章「data/ 全 .gitignore」規則約束 | 原規則假設 data/ 下都是「可重下載/可重跑重現」的東西;人工標註是唯一例外,遺失即需重工 |
+| D14 | 2026-07-21 | ultralytics 8.4.102 的 `half=True` 參數已棄用（跑實際程式時印出 deprecation warning），推論/訓練一律改用 `quantize=16`（FP16；`quantize=32`/`None`＝FP32）。**全文所有 `half=True` 已改為 `quantize=16`** | 實測 `model.track(...)` 呼叫時的官方 deprecation 警告 + 讀 `ultralytics/cfg/default.yaml` 原始碼確認 `quantize` 取代 `half`/`int8`（2026-07-21） |
 
 ## 3. 系統架構
 
@@ -72,7 +75,7 @@ flowchart TD
     end
 ```
 
-> 技術參數（`cv2.VideoCapture`、`stream=True, max_det=1, half=True`、滑動視窗 1.5s 等）不放進圖裡，見第 7.3 節與第 8.4 節。
+> 技術參數（`cv2.VideoCapture`、`stream=True, max_det=1, quantize=16`、滑動視窗 1.5s 等）不放進圖裡，見第 7.3 節與第 8.4 節。
 
 ### 狀態機
 
@@ -133,11 +136,11 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 │   ├── PLAN.md                      # 本檔
 │   ├── assets/                      # demo.gif、Discord 通知截圖、特徵曲線圖
 │   └── results/                     # rule_baseline.md、ml_comparison.md、error_analysis.md
-├── data/                            # 全部 .gitignore；只留 data/README.md 說明取得方式
-│   ├── raw/urfd/                    # mp4 ×70 + urfall CSV ×2
-│   ├── processed/                   # *.npz 關鍵點序列
-│   ├── urfd_meta.csv                # 人工標註：subject_id + ADL 動作類別（Phase 1）
-│   └── splits.json                  # LOSO / GroupKFold 切分定義
+├── data/                            # 大部分 .gitignore；例外見 D13
+│   ├── raw/urfd/                    # mp4 ×70 + urfall CSV ×2（.gitignore，可重下載）
+│   ├── processed/                   # *.npz 關鍵點序列（.gitignore，可重跑 prepare_data.py 重現）
+│   ├── urfd_meta.csv                # 人工標註：subject_id + ADL 動作類別（D13：進 git，無法重現）
+│   └── splits.json                  # LOSO / GroupKFold 切分定義（D13：進 git，評估協定稽核依據）
 ├── models/                          # 權重 .gitignore；README 指向 HF 下載
 ├── events/                          # 執行期跌倒截圖，.gitignore
 ├── notebooks/train_colab.ipynb
@@ -148,7 +151,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 │   └── check_public_text.py         # 公開文案守門（Phase 0 自既有專案移植）
 ├── src/fallguard/                   # src layout（hatchling packages=["src/fallguard"]）
 │   ├── config.py                    # .env 載入、金鑰 mapping（D7）、模型字串
-│   ├── pose.py                      # YOLO26-pose 包裝（stream、track、half）
+│   ├── pose.py                      # YOLO26-pose 包裝（stream、track、quantize=16）
 │   ├── features.py                  # 特徵定義（第 7.3 節）+ 滑動視窗
 │   ├── rules.py                     # 規則式判定（閾值邏輯）
 │   ├── classifier.py                # XGBoost/GRU 載入與推論
@@ -204,12 +207,12 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 1 資料下載 + 關鍵點抽取（約 1–1.5 天）
 
-- [ ] `uv run python scripts/download_data.py` → `data/raw/urfd/` 下 70 支 mp4 + 2 份 CSV；斷點續傳；結束印檔數/總大小 summary；`--fallback le2i` 走 Kaggle API（token 在 `~/.kaggle/kaggle.json`）
-- [ ] 檢查 ADL 標籤分佈：確認 `urfall-cam0-adls.csv` 中躺床動作的 label 語意（是否標 1=lying）——結論記入 Decision Log（影響第 7.2 節視窗標籤規約）
-- [ ] `uv run python scripts/prepare_data.py` → `data/processed/*.npz` ×70；每檔含 `xyn (T,17,2)`、`conf (T,17)`、`bbox_xywh (T,4)`、`label (T,)`（對齊 urfall CSV，容許 ±1 幀）、`fps`、`timestamps`；結束印 `70/70 ok` + 標籤對齊 mismatch 報告 + 關鍵點缺測率統計（躺床/遮擋幀預期較高）
+- [x] `uv run python scripts/download_data.py` → `data/raw/urfd/` 下 70 支 mp4 + 2 份 CSV；斷點續傳；結束印檔數/總大小 summary；`--fallback le2i` 走 Kaggle API（token 在 `~/.kaggle/kaggle.json`）
+- [x] 檢查 ADL 標籤分佈：確認 `urfall-cam0-adls.csv` 中躺床動作的 label 語意（是否標 1=lying）——結論記入 Decision Log（影響第 7.2 節視窗標籤規約）→ **D12：16/40 段含 label=1(躺姿幾何特徵,非跌倒事件),已定案 kind 覆寫規則**
+- [x] `uv run python scripts/prepare_data.py` → `data/processed/*.npz` ×70；每檔含 `xyn (T,17,2)`、`conf (T,17)`、`bbox_xywh (T,4)`、`raw_label (T,)` + `label_present (T,)`（精確對齊，見 D12）、`fps`、`timestamps`；**實測 70/70 成功，耗時 287s，平均偵測率 90.0%（最低 fall-19 53.0%，跌倒瞬間遮擋，符合預期）**
 - [ ] **使用者人工標註** `data/urfd_meta.csv`：70 段 × `subject_id`（兩輪自我一致性，不確定標 unknown）+ 40 段 ADL × `action_category ∈ {走動, 坐下, 蹲下/綁鞋帶, 撿東西/彎腰, 躺床, 其他}`（約 1–2 小時；URFD 缺的動作類別在 README 註明覆蓋缺口，不硬湊）
-- [ ] `data/splits.json`：LOSO（5 折，unknown 只進訓練）+ 影片級 GroupKFold（5 折，fall/ADL 分層），隨機種子固定
-- [ ] `uv run pytest` 綠（npz schema、標籤對齊、`test_splits.py` fold 交集為空）
+- [x] `data/splits.json`：LOSO（5 折，unknown 只進訓練）+ 影片級 GroupKFold（5 折，fall/ADL 分層），隨機種子固定 → **GroupKFold 已就緒（scripts/make_splits.py）；LOSO 待人工標註（明日）完成後重跑同一指令自動補上**
+- [x] `uv run pytest` 綠（npz schema、標籤對齊、`test_splits.py` fold 交集為空）→ **11 passed, 1 skipped(LOSO 待標註)**
 - [ ] `git tag phase-1`
 
 ### Phase 2 特徵工程 + 規則 baseline（約 1–1.5 天）
@@ -252,7 +255,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### 7.2 指標（視窗級 + 事件級同時報告）
 
-- **URFD frame label 規約**：`-1` 未倒 / `0` 跌倒過渡 / `1` 已倒地。視窗標籤：含 ≥1 幀 label=1 或涵蓋 0→1 轉移 ⇒ 正例；全 -1 ⇒ 負例；只含 0 ⇒ 剔除（過渡幀語意不明確，文獻慣例）。事件級 ground-truth 區間 = [第一個 0 幀, 躺地段結束]，過渡幀在此層完整使用。（ADL 躺床標籤語意待 Phase 1 檢查後定案——見 Phase 1 DoD。）
+- **URFD frame label 規約**：`-1` 未倒 / `0` 跌倒過渡 / `1` 已倒地（此為 raw CSV 值）。**kind 覆寫規則（D12,已由 Phase 1 實測確認）**：只有 `kind=="fall"` 的影片,其 label 才代表真正的跌倒事件；`kind=="adl"` 影片一律視為負例(非跌倒),即使該幀 raw_label==1(常見於 ADL 中的躺床片段,是姿態幾何特徵而非事件標籤)。視窗標籤（僅在 fall 影片內計算正例）：含 ≥1 幀 label=1 或涵蓋 0→1 轉移 ⇒ 正例；全 -1 ⇒ 負例；只含 0 ⇒ 剔除（過渡幀語意不明確，文獻慣例）。ADL 影片的所有視窗一律負例,其中 raw_label==1 的視窗(躺床)是誤報分析(§1.3)的關鍵困難負樣本。事件級 ground-truth 區間 = [第一個 0 幀, 躺地段結束]，過渡幀在此層完整使用,僅適用於 fall 影片。
 - **視窗級**：precision / recall / F1 / **PR-AUC**（類別不平衡下必附）+ 混淆矩陣。
 - **事件級**：Event Sensitivity（30 段 fall 中狀態機到達 CONFIRMED 的比例）、Event Specificity（40 段 ADL 誤觸段數）、**false alarms per hour**（分母 = ADL 總時長；URFD 時數短需註明信賴區間寬，用 Le2i 標註子集補足（~191 段：143 fall / 48 ADL；Phase 1 下載後以實際檔數校正，記入 Decision Log））。
 - **偵測延遲分開報**：(a) 演算法延遲 = GT 撞擊幀 → 進入 ON_GROUND；(b) 告警延遲 = 撞擊 → CONFIRMED（含刻意設計的 N 秒）。混報是常見方法論錯誤。
@@ -317,7 +320,7 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 ### 8.4 即時推論架構（detect.py）
 
 - **Capture thread**：`cv2.VideoCapture` 連續 read，1-slot queue 只留最新幀（webcam 驅動有內部緩衝，直接 read 會累積延遲）
-- **Main thread**：`model.track(frame, persist=True, tracker="bytetrack.yaml", half=True, device=0, verbose=False)`（sticky：取最大 bbox 的 track id 為受監護對象）→ 特徵 → 狀態機 → overlay → imshow
+- **Main thread**：`model.track(frame, persist=True, tracker="bytetrack.yaml", quantize=16, device=0, verbose=False)`（sticky：取最大 bbox 的 track id 為受監護對象）→ 特徵 → 狀態機 → overlay → imshow
 - **Alert worker**：`ThreadPoolExecutor(max_workers=1)`，CONFIRMED 時 enqueue（截圖路徑+特徵摘要），依序 VLM → Discord；主迴圈不等待，畫面標 `ALERT: sending… / sent`
 - 時間基準一律 `time.monotonic()` 幀時間戳（webcam fps 不穩，幀序號差分是常見錯誤）；`--source 影片檔` 與 webcam 走同一條路徑；`--dump-features out.csv` 供失敗分析與測試 fixture；`--infer-every k` 留給 CPU 降級
 
