@@ -1,0 +1,21 @@
+# 金鑰與私人檔案
+.env
+.claude/private/
+
+# 虛擬環境
+.venv/
+
+# 資料與權重不進 git(取得方式見 data/README.md 與 README)
+data/*
+!data/README.md
+models/
+events/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# 其他
+*.log
