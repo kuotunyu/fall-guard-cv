@@ -5,11 +5,15 @@
 # 虛擬環境
 .venv/
 
-# 資料與權重不進 git(取得方式見 data/README.md 與 README)
+# 資料與權重不進 git(取得方式見 data/README.md 與 README);
+# 但 urfd_meta.csv(人工標註,無法重現)與 splits.json(評估協定,由前者衍生)例外(D13)
 data/*
 !data/README.md
+!data/urfd_meta.csv
+!data/splits.json
 models/
 events/
+*.pt
 
 # Python
 __pycache__/
