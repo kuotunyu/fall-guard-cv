@@ -195,12 +195,12 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 0 環境與骨架（約 0.5 天）
 
-- [ ] `git init` + 首 commit（`chore: scaffold project`）；MIT LICENSE；`.gitignore`（data/、models/、events/、.env、.claude/private/、.venv/）
-- [ ] `pyproject.toml`：src layout + cu128 index（完整寫法見 D9：explicit index + torch/torchvision 同鎖）；`uv sync` 成功
-- [ ] **驗收指令**：`uv run python -c "import torch; print(torch.cuda.is_available())"` → `True`
-- [ ] `.env` 補齊（第 5 章清單）+ `.env.example` 建立；**待使用者人工處理**：建 Discord Webhook 填 `DISCORD_WEBHOOK_URL`（不阻塞 Phase 1–3）
-- [ ] 移植 `.githooks/` + `scripts/check_public_text.py` + `.claude/private/redlist.txt`（不進 git）；**驗收**：含禁詞的測試 commit 被擋（exit 1）
-- [ ] README 骨架（第 10 章章節標題全到位，內容標 TODO）；`uv run pytest`（smoke）綠
+- [x] `git init` + 首 commit（`chore: scaffold project`）；MIT LICENSE；`.gitignore`（data/、models/、events/、.env、.claude/private/、.venv/）
+- [x] `pyproject.toml`：src layout + cu128 index（完整寫法見 D9：explicit index + torch/torchvision 同鎖）；`uv sync` 成功
+- [x] **驗收指令**：`uv run python -c "import torch; print(torch.cuda.is_available())"` → `True`
+- [x] `.env` 補齊（第 5 章清單）+ `.env.example` 建立；**待使用者人工處理**：建 Discord Webhook 填 `DISCORD_WEBHOOK_URL`（不阻塞 Phase 1–3）
+- [x] 移植 `.githooks/` + `scripts/check_public_text.py` + `.claude/private/redlist.txt`（不進 git）；**驗收**：含禁詞的測試 commit 被擋（exit 1）
+- [x] README 骨架（第 10 章章節標題全到位，內容標 TODO）；`uv run pytest`（smoke）綠
 
 ### Phase 1 資料下載 + 關鍵點抽取（約 1–1.5 天）
 
