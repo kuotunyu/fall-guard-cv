@@ -8,12 +8,12 @@
 
 ## 🧭 快速回憶區
 
-**上次收工日期**：2026-07-20
-**現在做到哪**：計畫階段完成——docs/PLAN.md（14 章開發藍圖，含 D1–D11 決策與已驗證的外部資源事實）、三支習慣 skills（resume-context / update-progress / public-copy-check）已建立。尚未 git init、尚未建 uv 環境（皆屬 Phase 0）。
-**下一步（開機第一件事）**：使用者審閱 docs/PLAN.md；確認後依 PLAN.md 第 6 章開 Phase 0（git init → pyproject cu128 → `uv run python -c "import torch; print(torch.cuda.is_available())"` 須為 True）。
+**上次收工日期**：2026-07-21
+**現在做到哪**：Phase 0 完成（tag: phase-0）——git repo 已建（3 commits）、uv 環境好了（torch 2.11.0+cu128、CUDA True on RTX 4090）、公開文案守門 hooks 實測會擋、pytest 3 passed、README 骨架就位。
+**下一步（開機第一件事）**：開 Phase 1——先寫 `scripts/download_data.py`，跑 `uv run python scripts/download_data.py` 下載 URFD（cam0 mp4 ×70 + urfall CSV ×2，帶斷點續傳與 summary 輸出）；動工前先用 Context7 查 ultralytics 現行 API（PLAN.md 第 6 章開頭規範）。
 **未決問題**：URFD ADL 躺床幀的 label 語意（是否標 1=lying）——Phase 1 下載後檢查 `urfall-cam0-adls.csv` 定案，記入 Decision Log。
 **待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 前完成即可）。(2) Phase 1 收尾時人工標註 `data/urfd_meta.csv`（subject_id + ADL 動作類別，約 1–2 小時）。
-**已知坑**：Windows 上 PyPI 預設 torch 是 CPU wheel——pyproject 必須用 cu128 explicit index 並同時鎖 torch+torchvision（PLAN.md D9 有完整寫法）。URFD 舊網域 fenix.univ.rzeszow.pl 已死，一律用 fenix.ur.edu.pl（HTTPS）。
+**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。
 
 ## 📜 Phase 日誌（append-only）
 
@@ -26,3 +26,14 @@
   - langchain 1.3.14 / langchain-google-genai 4.2.7；1.x 影像 content block 標準格式確認
 - 決策記錄：PLAN.md 第 2 章 D1–D11。
 - 尚未執行：git init（本條目完成時 repo 還不是 git repo，故無 commit 範圍/tag）。
+
+### Phase 0 — 環境與骨架（2026-07-21 完成，tag: phase-0）
+
+- 完成：git init（main）+ hooksPath 設定 + 3 個 Conventional Commits；pyproject（cu128 explicit index、torch+torchvision 同鎖、src layout + hatchling）；`uv sync`；.env 補齊專案變數（`DISCORD_WEBHOOK_URL` 留白待使用者填）+ `.env.example`；自既有專案移植 `scripts/check_public_text.py` + `.githooks/` + `.claude/private/redlist.txt`（不進 git）；README 骨架（十章節標題 + TODO 標記）；`src/fallguard/`（`config.py` 含金鑰 mapping D7）+ 冒煙測試。
+- 驗證證據（2026-07-21 實測）：
+  - `uv run python -c "import torch; print(torch.cuda.is_available())"` → `True`（RTX 4090、torch 2.11.0+cu128）
+  - `uv run pytest -q` → `3 passed`
+  - 含本機路徑樣式的測試 commit 被 pre-commit 擋下（exit 1）；正式 3 commits 全數通過 public-copy-check
+- 決策連結：PLAN.md D7（金鑰 mapping）、D9（cu128 同鎖 torchvision）、D10（src layout）。
+- commit 範圍：`69f7c09..0835351`
+- 插曲：public-copy-check SKILL.md 原文含字面路徑示例被自家 hook 擋下，已改為文字描述（教訓收進「已知坑」）。
