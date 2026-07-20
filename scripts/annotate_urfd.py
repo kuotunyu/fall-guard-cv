@@ -198,6 +198,26 @@ def list_videos() -> list[tuple[str, str]]:
     return videos
 
 
+def load_adl_lying_hint() -> dict[str, float]:
+    """算每段 ADL 影片有多少比例的幀被 URFD 官方標成 label=1(躺姿幾何特徵)。
+
+    這不是「跌倒」標籤(docs/PLAN.md D12:ADL 定義上不含跌倒事件),但高比例通常
+    代表躺床/躺地類動作,可當作動作類別判斷的參考提示,不能直接當答案。
+    """
+    csv_path = URFD_DIR / "urfall-cam0-adls.csv"
+    if not csv_path.exists():
+        return {}
+    counts: dict[str, list[int]] = {}
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        for row in csv.reader(f):
+            vid, label = row[0], int(row[2])
+            c = counts.setdefault(vid, [0, 0])
+            c[0] += 1
+            if label == 1:
+                c[1] += 1
+    return {vid: (pos / total * 100 if total else 0.0) for vid, (total, pos) in counts.items()}
+
+
 def video_path(video_id: str) -> Path:
     return URFD_DIR / f"{video_id}-cam0.mp4"
 
@@ -288,6 +308,7 @@ def ask_action_category(video_id: str) -> str | None:
 def run(mode: str) -> None:
     videos = list_videos()
     store = MetaStore(videos)
+    lying_hint = load_adl_lying_hint()
 
     if mode == "review":
         queue = list(store.order)
@@ -319,6 +340,10 @@ def run(mode: str) -> None:
             (f"[{i+1}/{len(queue)}] {vid}  ({kind_label})", (255, 255, 255)),
             (f"目前標籤:subject={current['subject_id'] or '(未標)'}  action={current['action_category'] or '-'}  note={current['note'] or '-'}", (180, 220, 180)),
         ]
+        if current["kind"] == "adl":
+            rate = lying_hint.get(vid, 0.0)
+            if rate >= 15:
+                header.append((f"提示:此段有 {rate:.0f}% 幀被官方姿態特徵判為躺姿(僅供參考,不是答案,可能是躺床)", (255, 200, 120)))
         footer = [
             ("1-5=標受試者P1-P5  u=不確定  p=播放影片  b=上一段  n=備註  q=存檔離開", (255, 255, 255)),
             (f"進度:{store.summary()}", (150, 200, 150)),
