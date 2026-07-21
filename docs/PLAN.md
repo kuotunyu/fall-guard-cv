@@ -66,6 +66,7 @@
 | D30 | 2026-07-21 | **demo.gif 的 FPS 讀數修正**：使用者發現 demo.gif 全程 FPS 死死釘在 30.0，覺得不合理(真實系統應該會有正常波動)。查出根因：demo 錄製腳本(`record_demo.py`)傳進 `overlay_frame()` 的 `fps` 參數,其實是「來源影片檔的固定 metadata fps 常數」(`cap.get(CAP_PROP_FPS)`)，不是即時量測值——跟 `detect.py` 正式版用 `n_frames/elapsed`(wall-clock 即時量測)完全是两回事，只是剛好參數名稱都叫 `fps` 造成混淆。修正：demo 腳本改成跟正式版同一套算法，用 `time.monotonic()` 量測真實處理耗時。修正後 FPS 真的會波動：開頭幾幀因為 GPU 第一次推論的暖機成本(CUDA kernel 編譯/cudnn 演算法搜尋)被平均進去而偏低(實測第 10 幀 3.8 FPS)，隨著幀數增加暖機成本被稀釋，逐漸爬升收斂到穩態值(第 150 幀 30.3 FPS，趨近 `--benchmark` 量到的 42.8 FPS)——這個爬升現象在真實 `detect.py` 也會發生(GPU 暖機是普遍現象，不是 demo 腳本特有的假象)，讓 demo 更貼近真實系統行為 | 修正前:全片 88 幀均顯示「FPS 30.0」不變。修正後:第 10/60/150 幀分別顯示 3.8/16.5/30.3，肉眼截圖比對確認有自然波動、非固定值。demo.gif 重新錄製，6.38MB(≤8MB 上限) |
 | D31 | 2026-07-21 | **D30 修完後，FPS 從個位數爬升到 30+ 的現象仍在，使用者再次回報「怪怪的」**：D30 只是把顯示值換成即時量測，但即時量測的算法本身是「累積自程式啟動」的全域平均(`n_frames/elapsed`)——這個算法在 GPU 剛開始跑、還沒經過 CUDA kernel 編譯/cudnn 演算法搜尋暖機前，會被那一次性的暖機成本拖著，要處理很多幀之後暖機成本才會被稀釋掉，數字才會爬升到穩態值。真正的問題不是「該不該即時量測」(D30 已經對)，而是「用哪種平均法」。修正：新增 `RollingFps` 類別，把顯示值從「累積自程式啟動的全域平均」改成「近期 1.5 秒滑動視窗平均」——只反映系統現在的處理速度，不會被開機時的一次性成本拖累，啟動後幾幀內數字就穩定，不再有肉眼可見的爬升過程；`detect.py` 正式版與 demo 錄製腳本都改用同一個類別，避免兩邊各自維護一份平均算法再度飄移(呼應 D18 的教訓)。程式結尾印的「平均 FPS」統計仍刻意維持累積平均(那才是正確的「整段執行期間的真實平均效能」語意，不應該套用滑動視窗) | 修正前:demo 全片 FPS 從個位數爬升到 30+，肉眼截圖可見明顯爬升曲線。修正後:第 10/60/150 幀分別顯示 72.0/63.0/69.3，穩定在合理範圍內波動、無爬升觀感。`uv run pytest -q` 43 passed；demo.gif 重新錄製，6.37MB(≤8MB 上限) |
 | D32 | 2026-07-21 | **D31 修完後使用者仍覺得數字「怪怪的」，這次抓到真正的癥結**：demo.gif 顯示 FPS 77.3，跟 README 記載的 `--benchmark` 42.8 完全對不上，讓人懷疑兩邊矛盾。追根究柢：`record_demo.py` 是另一支獨立的一次性腳本，沒有 `detect.py` 正式版的 imshow/三執行緒/佇列開銷，天生就跑得比正式系統快(實測 60~80 FPS)——D30/D31 修的是「量測算法」，但沒發現兩支程式根本是不同情境，數字本來就沒有理由要一樣。修正：`record_demo.py` 新增配速機制，每幀處理完後補睡到 `target_dt=1/42.8s`，讓 `RollingFps` 量到的即時速度收斂到貼近 README 已記載的數字，而不是這支陽春腳本的原始全速——如此畫面上的數字既是真即時量測(仍會自然小幅波動)，又跟文件其他地方講的數字一致，不會再讓人誤會兩者矛盾 | 修正前:第 10/60/150 幀顯示 72.0/63.0/69.3(高於 README 數字近 2 倍)。修正後:同幀數顯示 40.0/39.1/36.7,與 README 的 42.8 FPS 落在同一量級、自然波動。`uv run pytest -q` 43 passed；demo.gif 重新錄製，6.39MB(≤8MB 上限) |
+| D33 | 2026-07-22 | **README 拿掉「為什麼做這個專案」動機段，`supersedes` D-無(第一次寫入時即由 CLAUDE.md 規則帶出的預設項目，這是使用者本人明確決定的例外)**：CLAUDE.md 公開文案守則明文要求 README 開頭需有第一人稱動機段，Phase 4 也照規則擬了草稿(聚焦練習關鍵點特徵工程)並讓使用者過目調整過方向；使用者最終決定這個專案不需要這段，直接拿掉整個章節，不只是拿掉草稿標記。這是使用者對自己專案內容的直接決定，予以尊重並執行；CLAUDE.md 本身(跨多個作品集專案共用的範本)不因單一專案的個別決定而修改，僅在本專案的 Decision Log 記錄此例外。連帶修正：第 10 章 checklist 第 2 項移除；`tests/test_docs.py` 的 `REQUIRED_README_SECTIONS` 移除「為什麼做這個專案」；同時趁這次全文複查，修正模型選型章節「表1/表2/表3」原本編號跳號且順序錯亂(表1→表3→表2)的問題，改成 pose(表1)→分類器(表2)→VLM(表3) 依序排列，並把一處未加超連結的 `PLAN.md §7.2` 文字引用補上連結 | `uv run pytest -q` 43 passed（含更新後的 `test_readme_has_required_sections`）；`uv run python scripts/check_public_text.py README.md docs/PLAN.md tests/test_docs.py` 全綠 |
 
 ## 3. 系統架構
 
@@ -353,7 +354,7 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 ## 10. README 最終樣貌（= Phase 4 驗收 checklist）
 
 1. 標題 + badges（Python 3.11 / uv / MIT）+ **demo GIF**
-2. 為什麼做這個專案（第一人稱：家中長輩獨處的跌倒憂慮 × 自己的 CV 研究背景；草稿由 Claude 擬、使用者修改）
+2. ~~為什麼做這個專案~~（使用者決定拿掉，見 D33；CLAUDE.md 原則上要求此段，本專案為個別例外）
 3. 系統架構（第 3 章兩張 mermaid）
 4. 模型選型：表1 pose（YOLO26 n/s/m mAP/延遲/選 m 理由/ultralytics 版本/依據連結）；表2 分類器（rule vs XGB (vs GRU) 成績）；表3 VLM 分工（GEMINI_MODEL 主力 / OPENAI_MODEL 備援）+ 台灣模型生態觀察註記（CLAUDE.md 六要素之「台灣模型 vs 基準模型對照表」在本專案以此形式呈現——CV 主體暫無台製開源模型可對照，屬計畫階段已揭露的合理偏離）
 5. 資料集與授權（URFD 來源/引用/CC BY-NC-SA；Le2i 備案；不重佈原始資料只附下載腳本）
@@ -406,7 +407,7 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 
 ## 14. 收尾一致性檢查清單（發布前逐項）
 
-- [ ] README 第一人稱動機段（使用者已過目修改）→ **仍是 AI 草稿，待使用者本人審閱修改（唯一真正卡住發布的項目）**
+- [x] ~~README 第一人稱動機段~~ → **使用者決定整段拿掉，不需要這個章節（D33），此項不適用**
 - [x] 兩張 mermaid 圖正常渲染 → 已用瀏覽器 `read_page` 實測確認渲染為 `mermaid rendered output container`，非原始碼區塊
 - [ ] 評估數字表完整（LOSO 主協定 + 分層 + 事件級）→ LOSO/事件級/混淆矩陣皆已完整（D25 補上混淆矩陣），**站姿/坐姿分層因 URFD 無官方逐段對照表持續從缺**，README/rule_baseline.md 皆誠實揭露此限制，不視為阻擋發布的缺口
 - [x] demo.gif ≤8MB 且 README 首屏可見 → 2.43MB，README.md:8 首屏可見，`tests/test_docs.py` 守門
