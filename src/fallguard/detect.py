@@ -1,0 +1,379 @@
+"""跌倒偵測即時推論 CLI(docs/PLAN.md §8.4)。
+
+三執行緒:
+- capture thread:`cv2.VideoCapture` 連續讀取,1-slot 佇列只留最新幀(webcam 驅動有
+  內部緩衝,直接 read 會累積延遲,官方常見作法是丟棄舊幀只處理最新的)
+- main thread:`model.track()` 推論 → 特徵計算 → 狀態機 → overlay → imshow。特徵計算
+  重用 features.py 對一段滑動緩衝區重跑既有的批次邏輯,不另外維護一份增量版特徵計算
+  (避免評估與部署兩套特徵邏輯飄移,見 D18 的教訓)
+- alert worker(`ThreadPoolExecutor(max_workers=1)`):CONFIRMED/冷卻後升級告警時,
+  非同步呼叫 VLM→Discord,不阻塞主偵測迴圈
+
+用法:
+    uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4
+    uv run python -m fallguard.detect --source 0
+    uv run python -m fallguard.detect --source <mp4> --no-display --dump-features out.csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import sys
+import threading
+import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from .config import REPO_ROOT, settings
+from .features import compute_features
+from .fsm import FallStateMachine, FSMConfig, State
+from .pose import PoseEstimator
+
+EVENTS_DIR = REPO_ROOT / "events"
+
+# BGR(cv2 色彩順序),對應 docs/PLAN.md §3 狀態顏色表(綠/黃/橙/紅/紅)
+STATE_COLORS = {
+    State.NORMAL: (0, 200, 0),
+    State.FALLING: (0, 255, 255),
+    State.ON_GROUND: (0, 140, 255),
+    State.CONFIRMED: (0, 0, 255),
+    State.ALERTED: (0, 0, 255),
+}
+
+FEATURE_BUFFER_S = 6.0  # compute_features 重採樣/滑動中位數用的回顧視窗(§7.3 最長用到 3s,留一倍餘裕)
+
+
+class LatestFrameQueue:
+    """1-slot 佇列:capture thread 一直塞最新幀,main thread 只拿最新的,舊幀直接丟棄不排隊。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._frame: np.ndarray | None = None
+        self._frame_id = 0
+        self._closed = False
+
+    def put(self, frame: np.ndarray) -> None:
+        with self._lock:
+            self._frame = frame
+            self._frame_id += 1
+
+    def get_latest(self, last_seen_id: int) -> tuple[np.ndarray | None, int]:
+        with self._lock:
+            if self._frame is None or self._frame_id == last_seen_id:
+                return None, last_seen_id
+            return self._frame, self._frame_id
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        with self._lock:
+            return self._closed
+
+
+def capture_loop(
+    cap: cv2.VideoCapture,
+    queue: LatestFrameQueue,
+    stop_event: threading.Event,
+    target_dt: float | None,
+) -> None:
+    """`target_dt` 非 None 時,依來源原生 fps 間隔配速讀取(模擬即時攝影機)——否則影片檔
+    會被本執行緒瞬間讀完,1-slot 佇列只留最後一幀,main thread 完全來不及看到中間畫面
+    (webcam 天生由硬體配速,不需要這個機制)。吞吐量測試改用完全不同的 `run_benchmark()`
+    單執行緒迴圈,不會呼叫到這個函式。"""
+    next_t = time.monotonic()
+    while not stop_event.is_set():
+        ok, frame = cap.read()
+        if not ok:
+            queue.close()
+            return
+        queue.put(frame)
+        if target_dt:
+            next_t += target_dt
+            sleep_s = next_t - time.monotonic()
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+            else:
+                next_t = time.monotonic()  # 已落後就重新起算基準,避免無止盡追趕延遲
+
+
+def save_snapshot(frame: np.ndarray, tag: str) -> Path:
+    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    path = EVENTS_DIR / f"{ts}_{tag}.jpg"
+    cv2.imwrite(str(path), frame)
+    return path
+
+
+def run_alert(confirm_path: Path, escalation: bool) -> None:
+    """alert worker 執行緒的工作內容:VLM 描述(LOCAL_ONLY 時跳過)→ Discord 送出(D8/§8.2/§8.3)。"""
+    from . import notify, vlm
+
+    if settings.local_only:
+        description = "(LOCAL_ONLY 模式,已跳過雲端 VLM 描述,僅本機留存截圖)"
+    else:
+        print("[alert] 呼叫 VLM 描述現場...")
+        description = vlm.describe_scene(confirm_path)
+        print(f"[alert] VLM 描述:{description}")
+
+    print("[alert] 送出 Discord 通報...")
+    ok = notify.send_fall_alert(description, image_path=confirm_path, escalation=escalation)
+    print(f"[alert] {'已送達' if ok else '送出失敗,詳見上方訊息'}")
+
+
+def print_cost_estimate() -> None:
+    print("=== VLM 呼叫成本估算(docs/PLAN.md 第 11 章) ===")
+    print(f"模型:{settings.gemini_model}")
+    print("每次通報 ≈ 1 張 720p JPEG + 短 prompt + ~150 token 輸出,單次成本遠低於 $0.001")
+    hourly_cap = 3600 / settings.alert_cooldown_seconds if settings.alert_cooldown_seconds > 0 else float("inf")
+    print(f"冷卻 {settings.alert_cooldown_seconds:.0f}s ⇒ 每小時最多 {hourly_cap:.0f} 次告警(天花板情境,非預期實際頻率)")
+    print("實際單價請以官方定價頁為準;LOCAL_ONLY=true 可完全跳過此項花費")
+    print()
+
+
+def overlay_frame(
+    frame: np.ndarray,
+    state: State,
+    feats: dict | None,
+    fps: float,
+    lying_elapsed: float | None,
+    confirm_seconds: float,
+) -> np.ndarray:
+    color = STATE_COLORS[state]
+    label = state.value
+    if state == State.ON_GROUND and lying_elapsed is not None:
+        label = f"{state.value} {lying_elapsed:.1f}/{confirm_seconds:.1f}s"
+
+    # 標籤底色矩形固定夠寬(容納最長的 "ON_GROUND 10.0/10.0s" 字樣),不要依「這一幀」
+    # 文字寬度動態縮小——同一顆畫面緩衝區若連續疊字(例如上一幀 ON_GROUND 字比較寬、
+    # 這一幀 ALERTED 字比較窄),矩形變窄會蓋不到前一幀留下的字,殘影穿幫。FPS 已改放
+    # 右下角,跟這裡不共用邊界,固定寬度不會撞到它。
+    cv2.rectangle(frame, (0, 0), (min(frame.shape[1], 260), 34), (0, 0, 0), -1)
+    cv2.putText(frame, label, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+    y0 = frame.shape[0] - 80
+    cv2.rectangle(frame, (0, y0 - 10), (min(frame.shape[1], 200), frame.shape[0]), (0, 0, 0), -1)
+    if feats is not None:
+        lines = [
+            f"theta={feats.get('theta', float('nan')):.1f} deg",
+            f"v_y={feats.get('v_y', float('nan')):.2f} torso/s",
+            f"hip_h={feats.get('hip_height', float('nan')):.2f}",
+        ]
+    else:
+        lines = ["(no detection yet)"]
+    for i, line in enumerate(lines):
+        cv2.putText(frame, line, (8, y0 + 20 * (i + 1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+    fps_box_w = min(frame.shape[1], 100)  # 固定寬度,理由同上方標籤矩形(避免同一畫面緩衝殘影)
+    cv2.rectangle(frame, (frame.shape[1] - fps_box_w, frame.shape[0] - 24), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    cv2.putText(frame, f"FPS {fps:.1f}", (frame.shape[1] - fps_box_w + 6, frame.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    return frame
+
+
+def run_benchmark(source: str, pose: PoseEstimator, fsm_config: FSMConfig, min_frames: int = 300) -> None:
+    """單執行緒逐幀跑,不透過 1-slot 佇列/capture thread——短片會被那套「只留最新幀」設計瞬間
+    讀完丟棄,量不到真實吞吐量(見 D20:webcam 場景丟舊幀是對的,但拿它測固定長度檔案的吞吐量
+    不成立)。影片放完就繞回開頭重播,湊到 `min_frames` 才停,避免短片樣本數太少導致量測不穩定。
+    量測範圍含 pose 推論+特徵計算+狀態機,不含 imshow(對應 DoD『平均 FPS,目標 ≥30』)。"""
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        print(f"無法開啟來源:{source}")
+        sys.exit(1)
+
+    fsm = FallStateMachine(fsm_config)
+    raw_buf: deque = deque()
+    n_frames = 0
+    t_start = time.monotonic()
+
+    while n_frames < min_frames:
+        ok, frame = cap.read()
+        if not ok:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
+
+        t = time.monotonic() - t_start
+        pose_frame, _ = pose.infer(frame)
+        raw_buf.append((t, pose_frame.xyn, pose_frame.conf, pose_frame.bbox_xywh))
+        while raw_buf and t - raw_buf[0][0] > FEATURE_BUFFER_S:
+            raw_buf.popleft()
+
+        if len(raw_buf) >= 2:
+            ts = np.array([r[0] for r in raw_buf], dtype=np.float64)
+            xyn = np.stack([r[1] for r in raw_buf])
+            conf = np.stack([r[2] for r in raw_buf])
+            bbox = np.stack([r[3] for r in raw_buf])
+            feats = compute_features(xyn, conf, bbox, ts)
+            if len(feats) > 0:
+                fsm.step(feats.frame(-1))
+
+        n_frames += 1
+
+    cap.release()
+    elapsed = time.monotonic() - t_start
+    avg_fps = n_frames / elapsed if elapsed > 0 else 0.0
+    print(f"[benchmark] 共處理 {n_frames} 幀,耗時 {elapsed:.2f}s,平均 FPS={avg_fps:.1f}")
+
+
+def main() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--source", required=True, help="影片路徑,或 webcam 索引(例如 0)")
+    parser.add_argument("--confirm-seconds", type=float, default=None, help="覆寫 FALL_CONFIRM_SECONDS(預設讀 .env,部署建議 10)")
+    parser.add_argument("--no-display", action="store_true", help="不開 imshow 視窗(headless/量測 FPS 用)")
+    parser.add_argument("--dump-features", type=Path, default=None, help="把逐幀特徵+狀態寫成 CSV,供除錯/測試 fixture")
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="單執行緒吞吐量測試(不透過即時 1-slot 佇列),量測管線真實 FPS 上限,驗收 DoD ≥30 FPS 用;僅支援影片檔來源",
+    )
+    args = parser.parse_args()
+
+    source = int(args.source) if args.source.lstrip("-").isdigit() else args.source
+    is_file_source = isinstance(source, str)
+
+    if args.benchmark:
+        if not is_file_source:
+            print("--benchmark 僅支援影片檔來源(webcam 沒有『讀完一輪』的概念)")
+            sys.exit(1)
+        print("載入 pose 模型...")
+        pose = PoseEstimator(settings.pose_model)
+        fsm_config = FSMConfig(
+            confirm_seconds=args.confirm_seconds if args.confirm_seconds is not None else settings.fall_confirm_seconds,
+            cooldown_s=settings.alert_cooldown_seconds,
+        )
+        run_benchmark(source, pose, fsm_config)
+        return
+
+    if not settings.local_only:
+        print_cost_estimate()
+
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        print(f"無法開啟來源:{args.source}")
+        sys.exit(1)
+
+    target_dt = None
+    if is_file_source:
+        native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        target_dt = 1.0 / native_fps
+        print(f"影片來源配速至原生 {native_fps:.1f} FPS(模擬即時攝影機;量測吞吐量請改用 --benchmark)")
+
+    # 模型載入(含 CUDA 暖機)先做完,才啟動 capture thread——否則配速讀取的影片檔
+    # 會在暖機期間被悄悄讀完丟棄(1-slot 佇列只留最新幀),白白浪費整段短片。
+    print("載入 pose 模型...")
+    pose = PoseEstimator(settings.pose_model)
+    fsm_config = FSMConfig(
+        confirm_seconds=args.confirm_seconds if args.confirm_seconds is not None else settings.fall_confirm_seconds,
+        cooldown_s=settings.alert_cooldown_seconds,
+    )
+    fsm = FallStateMachine(fsm_config)
+
+    queue = LatestFrameQueue()
+    stop_event = threading.Event()
+    cap_thread = threading.Thread(target=capture_loop, args=(cap, queue, stop_event, target_dt), daemon=True)
+    cap_thread.start()
+
+    raw_buf: deque = deque()  # 每格 (t, xyn, conf, bbox_xywh)
+    impact_frame: np.ndarray | None = None
+
+    alert_pool = ThreadPoolExecutor(max_workers=1)
+    n_alerts_seen = 0
+
+    dump_rows: list[dict] = [] if args.dump_features else None
+
+    t_start = time.monotonic()
+    n_frames = 0
+    last_seen_id = 0
+
+    print("偵測中...(視窗按 q 結束;headless 模式 Ctrl+C 結束)")
+    try:
+        while True:
+            frame, last_seen_id = queue.get_latest(last_seen_id)
+            if frame is None:
+                if queue.closed:
+                    break
+                time.sleep(0.001)
+                continue
+
+            t = time.monotonic() - t_start
+            pose_frame, annotated = pose.infer(frame)
+
+            raw_buf.append((t, pose_frame.xyn, pose_frame.conf, pose_frame.bbox_xywh))
+            while raw_buf and t - raw_buf[0][0] > FEATURE_BUFFER_S:
+                raw_buf.popleft()
+
+            feats_dict = None
+            if len(raw_buf) >= 2:
+                ts = np.array([r[0] for r in raw_buf], dtype=np.float64)
+                xyn = np.stack([r[1] for r in raw_buf])
+                conf = np.stack([r[2] for r in raw_buf])
+                bbox = np.stack([r[3] for r in raw_buf])
+                feats = compute_features(xyn, conf, bbox, ts)
+                if len(feats) > 0:
+                    feats_dict = feats.frame(-1)
+
+            prev_state = fsm.state
+            if feats_dict is not None:
+                fsm.step(feats_dict)
+            new_state = fsm.state
+
+            if prev_state == State.FALLING and new_state == State.ON_GROUND:
+                impact_frame = frame.copy()
+
+            if len(fsm.alerts) > n_alerts_seen:
+                new_alert = fsm.alerts[-1]
+                n_alerts_seen = len(fsm.alerts)
+                confirm_path = save_snapshot(frame, "confirm")
+                if impact_frame is not None:
+                    save_snapshot(impact_frame, "impact")
+                print(f"[detect] {'升級再告警' if new_alert.escalation else '確認跌倒'} @ t={t:.1f}s → {confirm_path.name}")
+                alert_pool.submit(run_alert, confirm_path, new_alert.escalation)
+
+            n_frames += 1
+            elapsed = time.monotonic() - t_start
+            fps = n_frames / elapsed if elapsed > 0 else 0.0
+
+            if dump_rows is not None and feats_dict is not None:
+                dump_rows.append({"t": t, "state": new_state.value, **{k: v for k, v in feats_dict.items() if k != "t"}})
+
+            if not args.no_display:
+                out = overlay_frame(annotated, new_state, feats_dict, fps, fsm.lying_elapsed_s, fsm_config.confirm_seconds)
+                cv2.imshow("fall-guard-cv", out)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_event.set()
+        cap.release()
+        cv2.destroyAllWindows()
+        alert_pool.shutdown(wait=True)
+
+    elapsed = time.monotonic() - t_start
+    avg_fps = n_frames / elapsed if elapsed > 0 else 0.0
+    print(f"結束:共 {n_frames} 幀,耗時 {elapsed:.1f}s,平均 FPS={avg_fps:.1f}")
+
+    if dump_rows is not None:
+        with args.dump_features.open("w", newline="", encoding="utf-8") as f:
+            fieldnames = list(dump_rows[0].keys()) if dump_rows else ["t", "state"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(dump_rows)
+        print(f"特徵已寫入 {args.dump_features}")
+
+
+if __name__ == "__main__":
+    main()
