@@ -9,10 +9,10 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-21
-**現在做到哪**：**Phase 2 已收尾（tag phase-2，使用者自行 commit/tag）。Phase 3 的 AI 端準備工作已完成**：`prepare_train_export.py`（54 維視窗統計特徵匯出，223KB）、`notebooks/train_colab.ipynb`（XGBoost LOSO 訓練 + SHAP，待使用者在 Colab 執行）、`evaluate.py --model xgb`（本機重現驗證，已測試無模型時的錯誤訊息）。**這批尚未 commit（使用者自行操作 git）。真正的 Colab 訓練尚未執行（需使用者操作瀏覽器，AI 無法代勞）**。`uv run pytest -q` 26 passed。
-**下一步（開機第一件事）**：使用者先 commit 這批 Phase 3 準備工作；接著**依對話紀錄的步驟在 Colab 執行 `notebooks/train_colab.ipynb`**（上傳 3 個檔案、Runtime 選 T4、執行全部 cell、下載 zip）；把 zip 解壓進 `models/xgboost/`；跑 `uv run python scripts/evaluate.py --model xgb --protocol loso` 驗證重現(±0.01)；AI 再依結果回填 README 對照表、收 Phase 3。
+**現在做到哪**：**Phase 2 已收尾（tag phase-2，使用者自行 commit/tag）。Phase 3 的 AI 端準備工作已完成**：`prepare_train_export.py`（54 維視窗統計特徵匯出，223KB）、`notebooks/fall-guard-cv_train_xgboost_colab.ipynb`（XGBoost LOSO 訓練 + SHAP，待使用者在 Colab 執行）、`evaluate.py --model xgb`（本機重現驗證，已測試無模型時的錯誤訊息）。**這批尚未 commit（使用者自行操作 git）。真正的 Colab 訓練尚未執行（需使用者操作瀏覽器，AI 無法代勞）**。`uv run pytest -q` 26 passed。
+**下一步（開機第一件事）**：使用者先 commit 這批 Phase 3 準備工作；接著**依對話紀錄的步驟在 Colab 執行 `notebooks/fall-guard-cv_train_xgboost_colab.ipynb`**（上傳 3 個檔案、Runtime 選 T4、執行全部 cell、下載 zip）；把 zip 解壓進 `models/xgboost/`；跑 `uv run python scripts/evaluate.py --model xgb --protocol loso` 驗證重現(±0.01)；AI 再依結果回填 README 對照表、收 Phase 3。
 **未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2）。GRU（3b）選做與否待使用者決定。
-**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 前完成即可）。(2) **這批 Phase 3 準備工作的 git commit 由使用者自行執行**。(3) **在 Colab 執行 train_colab.ipynb 並帶回權重**（AI 無法操作使用者的 Google 帳號/瀏覽器）。(4) 訓練完成後，權重上傳 Hugging Face 前 AI 會先徵求確認才執行。
+**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 前完成即可）。(2) **這批 Phase 3 準備工作的 git commit 由使用者自行執行**。(3) **在 Colab 執行 fall-guard-cv_train_xgboost_colab.ipynb 並帶回權重**（AI 無法操作使用者的 Google 帳號/瀏覽器）。(4) 訓練完成後，權重上傳 Hugging Face 前 AI 會先徵求確認才執行。
 **已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。ultralytics `half=True` 已棄用，一律用 `quantize=16`（D14）。ultralytics 下載的 `.pt` 權重會先落在 CWD，`prepare_data.py` 已自動搬進 `models/pretrained/`（已 gitignore）。**cv2 GUI 視窗失焦時按鍵會被 OS 排隊，恢復焦點瞬間可能暴衝連續觸發**——`annotate_urfd.py` 已加 400ms 按鍵沖刷防護。**LOSO 的 P3/P4/P5 折沒有 ADL 測試樣本**（D15，evaluate.py/README 已處理成 N/A 不硬平均）。**任何狀態機/計時邏輯寫 NaN 防呆時，純時間判斷(逾時/確認/冷卻)必須獨立於特徵值是否缺失都照常執行**（D16 血淚教訓，未來寫 detect.py 部署版時要記得）。**評估用的跌倒確認秒數不是寫死 2s，是折內調參出來的**（D16 取代 D11 假設，grid 見 evaluate.py TUNE_CONFIRM_SECONDS_GRID）。matplotlib 中文圖表記得設定 `font.family` 為系統中文字型（msjh.ttc），預設字型沒有中文字形。
 
 ## 📜 Phase 日誌（append-only）

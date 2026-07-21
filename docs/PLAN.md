@@ -146,7 +146,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 │   └── splits.json                  # LOSO / GroupKFold 切分定義（D13：進 git，評估協定稽核依據）
 ├── models/                          # 權重 .gitignore；README 指向 HF 下載
 ├── events/                          # 執行期跌倒截圖，.gitignore
-├── notebooks/train_colab.ipynb
+├── notebooks/fall-guard-cv_train_xgboost_colab.ipynb
 ├── scripts/
 │   ├── download_data.py             # URFD 下載（斷點續傳）+ --fallback le2i
 │   ├── prepare_data.py              # 影片 → npz 關鍵點序列（本機 GPU）
@@ -228,7 +228,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 3 Colab 訓練 + 權重回程（約 1–2 天；3b 選做）
 
-- [x] 打包 `data/processed/`（npz 共約數 MB～數十 MB）上傳 Colab；`notebooks/train_colab.ipynb` 在 T4 端到端跑完：讀 npz → 切窗 → **以 group id 斷言切分（notebook 內防呆，不信任外部）** → XGBoost（視窗統計特徵 ~50–80 維：8–10 基礎特徵 × {mean,std,min,max,last−first,max-derivative}）→ LOSO 評估 → SHAP 特徵重要度圖 → **改用更小的視窗統計特徵匯出檔而非整批 npz（D17），notebook 已寫好，AI 端全部就緒；實際在 Colab 執行由使用者操作（AI 無法登入使用者的 Google 帳號代為執行）**
+- [x] 打包 `data/processed/`（npz 共約數 MB～數十 MB）上傳 Colab；`notebooks/fall-guard-cv_train_xgboost_colab.ipynb` 在 T4 端到端跑完：讀 npz → 切窗 → **以 group id 斷言切分（notebook 內防呆，不信任外部）** → XGBoost（視窗統計特徵 ~50–80 維：8–10 基礎特徵 × {mean,std,min,max,last−first,max-derivative}）→ LOSO 評估 → SHAP 特徵重要度圖 → **改用更小的視窗統計特徵匯出檔而非整批 npz（D17），notebook 已寫好，AI 端全部就緒；實際在 Colab 執行由使用者操作（AI 無法登入使用者的 Google 帳號代為執行）**
 - [x] notebook 開頭 pin 版本（xgboost 本機/Colab 同版，避免序列化不相容）→ **鎖定 3.2.0（D17，非 3.3.0，因本專案鎖 Python 3.11）**
 - [ ] （3b 選做）GRU：1 層 hidden=64（~2–4 萬參數）、輸入 `(T≈38 @25Hz×1.5s, F)`、資料增強（水平翻轉/縮放/時間抖動/關鍵點噪聲）、3 seeds + 早停；LOSO 全跑約 20–30 分鐘 → **選做，視使用者意願，待主線(XGBoost)跑完再議**
 - [ ] 權重回 `models/`；**驗收**：`uv run python scripts/evaluate.py --model xgb --protocol loso` 本機重現 Colab 數字（±0.01）→ **`evaluate.py --model xgb` 已寫好並測試「模型不存在時的錯誤訊息」正常；等使用者從 Colab 帶回權重才能真正驗收**
