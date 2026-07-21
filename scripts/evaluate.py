@@ -432,7 +432,7 @@ def xgb_window_metrics(samples: list[WindowSample], booster) -> dict:
 
 def run_xgb_evaluation(protocol: str, videos: dict[str, VideoData]) -> None:
     if not XGB_MODELS_DIR.exists():
-        print(f"找不到 {XGB_MODELS_DIR}——請先完成 Colab 訓練(notebooks/train_colab.ipynb),")
+        print(f"找不到 {XGB_MODELS_DIR}——請先完成 Colab 訓練(notebooks/fall-guard-cv_train_xgboost_colab.ipynb),")
         print("把下載回來的 xgb_fold_*.json / xgb_final.json / xgb_loso_results.json 放進這個資料夾。")
         sys.exit(1)
 
@@ -457,7 +457,7 @@ def run_xgb_evaluation(protocol: str, videos: dict[str, VideoData]) -> None:
         print(f"  {subject}(本機重現): n={metrics['n']} P={_fmt(metrics.get('precision'))} R={_fmt(metrics.get('recall'))} F1={_fmt(metrics.get('f1'))}")
 
     colab_results_path = XGB_MODELS_DIR / "xgb_loso_results.json"
-    lines = ["# XGBoost 本機重現結果", "", f"模型來源：`{XGB_MODELS_DIR}`（Colab 訓練，見 notebooks/train_colab.ipynb）", ""]
+    lines = ["# XGBoost 本機重現結果", "", f"模型來源：`{XGB_MODELS_DIR}`（Colab 訓練，見 notebooks/fall-guard-cv_train_xgboost_colab.ipynb）", ""]
     if colab_results_path.exists():
         colab_data = json.loads(colab_results_path.read_text(encoding="utf-8"))
         colab_by_fold = {m["fold"]: m for m in colab_data["folds"]}
