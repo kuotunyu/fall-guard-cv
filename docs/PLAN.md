@@ -72,6 +72,7 @@
 | D36 | 2026-07-22 | **使用者看不懂表格欄位「折」是什麼，順勢複查全文找同類「未先定義就使用」的術語問題**：「折」是交叉驗證（cross-validation）的分法單位，英文 fold，但單獨一個中文字看起來像日常用語「打折」，完全沒有提示這是統計學術語；而且「折」與「LOSO」第一次出現都在「模型選型」的表2，遠早於後面「評估結果」章節才有的完整解釋，讀者由上往下讀會先看到術語才看到定義，順序反了。同樣模式複查發現「VLM」這個縮寫全文用了 7 次（系統架構圖、表3標題、隱私設計、成本估算…）卻從頭到尾沒展開過。修正：表2/視窗級指標/事件級指標三處表格欄位「折」都改成「折/fold」；表2 標題後新增一段話在使用前先定義 LOSO 全稱與「折/fold」的意思，並註明完整協定見「評估結果」（不重複展開，只做前向指引）；表3 標題後新增一句白話定義 VLM（Vision-Language Model，「看得懂照片、還能用文字描述照片內容」的 AI 模型）；順手把「NMS-free」這個沒解釋過的縮寫也改寫成白話說明（「免除逐框比對去重的 NMS 後處理」）。mAP、SHAP、XGBoost、YOLO 等維持不動——這些是本來就該讓讀者自行查閱的標準專有名詞/工具名稱，跟「折」這種「看起來像日常字但其實是術語」的誤導性不同，不屬於同一類問題 | `uv run pytest -q` 43 passed；`check_public_text.py` 全綠；GitHub markdown API 渲染 + read_page 確認新增文字與「折/fold」表頭正確渲染，欄寬計算顯示三個表格皆有餘裕不會被壓縮換行 |
 | D37 | 2026-07-22 | **新增 GitHub Actions：`.github/workflows/test.yml`，每次 push/PR 自動跑 `uv sync` + `uv run pytest -q`**：使用者確認 repo 從未設定過任何 workflow（`actions` 分頁只有 GitHub 的新手導覽頁），請求補上最基本的測試 CI。跑在 `ubuntu-latest`（而非 CLAUDE.md 要求的 Windows 11 原生）——CLAUDE.md 的 Windows 原生規則針對的是本機開發環境（RTX 4090 GPU 推論、Ollama 等地端服務），43 個測試本身不碰 GPU/CUDA（`test_smoke.py` 只驗證 config 預設值與套件可匯入，`test_prepare_data.py`/`test_splits.py` 在 URFD 資料集不存在時會 `pytest.skip` 而非失敗，`test_vlm.py` 用 `AIMessage` 假物件不呼叫真實 API），程式碼本身依 CLAUDE.md 規範一律用 pathlib 寫路徑（跨平台安全），改用 ubuntu-latest 開機快、免費分鐘數消耗少，也順便驗證程式碼真的沒有偷寫死 Windows 路徑分隔符。pyproject.toml 的 torch 索引鎖 `pytorch-cu128`，CI 上沒有 GPU 但 wheel 仍能正常安裝（只是裝到的 CUDA build 用不到 GPU，`torch.cuda.is_available()` 會是 False，測試不依賴這件事）。third-party actions 用目前官方文件推薦的版本：`actions/checkout@v7`、`astral-sh/setup-uv@v9`(uv 版本走 `.python-version` 既有的 3.11 鎖定，不在 workflow 裡重複寫版本號)。README 徽章列新增對應的 tests 徽章 | YAML 用 `python -c "import yaml; yaml.safe_load(...)"` 驗證語法有效；`actions/checkout`、`astral-sh/setup-uv` 版本號經 WebFetch 官方 repo README 確認為當前推薦版本 |
 | D38 | 2026-07-22 | **D37 的第一次 CI 執行實際失敗**：`astral-sh/setup-uv@v9` 解析失敗（`Unable to resolve action...unable to find version v9`）——D37 誤判了兩個 action 的 tag 慣例一致，`actions/checkout` 確實維護浮動大版號 tag（`v7` 指向 `v7.0.1`），但 `astral-sh/setup-uv` 從 v8 版起改成只發布不可變的完整版號（`v9.0.0`），不提供 `v9` 這種浮動別名，本地驗證 YAML 語法時只確認了語法合法，沒有實際確認每個 action 的 ref 在 GitHub 上真的能解析。修正：改用官方 README 展示的寫法，直接釘住 commit SHA 並用註解標註版號（`astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0`），並用 `gh run view --log` 抓真實錯誤訊息定位問題、逐一到兩個 action 各自的 `/tags` 頁面核對 ref 是否存在，而非只信任「主流 action 都有浮動大版號」的假設 | `gh run list`/`gh run view --log` 確認第一次執行 `##[error]Unable to resolve action astral-sh/setup-uv@v9`；修正後待下次 push 驗證 |
+| D39 | 2026-07-22 | **CI 跑綠後使用者請求最後一輪收尾複查（「有什麼 md 檔或什麼檔案要更新」）**，逐一比對 `docs/PLAN.md` 記載內容與 repo 實際狀態，找到 4 處落後：(1) 第5章 Repo 結構樹是計畫階段寫的，早已跟實際檔案脫勾——列了從未建立的 `classifier.py`（D20 已決定不建）與 `test_rules.py`（實際檔名是 `test_fsm.py`），漏列 `annotate_urfd.py`/`make_splits.py`/`upload_to_hf.py`/`error_analysis.py`/`prepare_train_export.py` 等 Phase 1-3 才新增的腳本、`test_prepare_data.py`/`test_vlm.py` 兩個測試檔、以及新增的 `.github/workflows/`，`docs/results/` 也誤寫成 `ml_comparison.md`(實際是 `xgb_baseline.md`)；(2) 第10章 README 樣貌清單的 badges 項目沒跟上這次新增的 tests 徽章；(3) 第14章收尾清單有一項「評估數字表完整」明明說明欄已經寫「不視為阻擋發布的缺口」卻仍勾成未完成，屬單純沒同步勾選；(4) 第13章規劃了三支「該 Phase 完成當天建立」的 skill（extract-keypoints/colab-roundtrip/demo-release），三個 Phase 都已完成多時卻始終沒建立，且從未在 Decision Log 交代原因，讓讀者以為是遺漏。逐一修正：Repo 結構樹改為對照 `ls` 實際輸出重寫；badges 清單補上 tests；勾選項打勾；三支未建立的 skill 改用刪除線標記並各自補上「收尾複查時判斷該流程沒有值得沉澱的隱性知識，予以取消」的理由，不假裝現在才臨時補建 | `ls scripts/ src/fallguard/ tests/*.py docs/results/` 逐一核對修正後的 Repo 結構樹與磁碟實際內容一致；`uv run pytest -q` 43 passed；`check_public_text.py` 全綠 |
 
 ## 3. 系統架構
 
@@ -156,10 +157,11 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 │   ├── skills/                      # 專案級 skills（第 13 章）
 │   └── private/redlist.txt          # 禁詞清單，不進 git
 ├── .githooks/                       # pre-commit + commit-msg → check_public_text.py
+├── .github/workflows/test.yml       # CI：push/PR 自動 uv sync + pytest（D37/D38）
 ├── docs/
 │   ├── PLAN.md                      # 本檔
-│   ├── assets/                      # demo.gif、Discord 通知截圖、特徵曲線圖
-│   └── results/                     # rule_baseline.md、ml_comparison.md、error_analysis.md
+│   ├── assets/                      # demo.gif、特徵曲線圖、受試者對照圖等
+│   └── results/                     # rule_baseline.md、xgb_baseline.md、error_analysis.md
 ├── data/                            # 大部分 .gitignore；例外見 D13
 │   ├── raw/urfd/                    # mp4 ×70 + urfall CSV ×2（.gitignore，可重下載）
 │   ├── processed/                   # *.npz 關鍵點序列（.gitignore，可重跑 prepare_data.py 重現）
@@ -171,23 +173,31 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 ├── scripts/
 │   ├── download_data.py             # URFD 下載（斷點續傳）+ --fallback le2i
 │   ├── prepare_data.py              # 影片 → npz 關鍵點序列（本機 GPU）
-│   ├── evaluate.py                  # --model {rule,xgb,gru} --protocol {loso,groupkfold}
+│   ├── annotate_urfd.py             # 互動式 GUI：標 subject_id + ADL 動作類別（D6）
+│   ├── subject_sheet.py / compare_subjects.py / peek_video.py  # 標註輔助小工具（受試者對照/放大比對/純播放）
+│   ├── make_splits.py               # 產出 data/splits.json（LOSO + GroupKFold）
+│   ├── prepare_train_export.py      # npz → 54 維視窗統計特徵，打包供 Colab 訓練
+│   ├── evaluate.py                  # --model {rule,xgb} --protocol {loso,groupkfold}
+│   ├── error_analysis.py            # 規則式 baseline 誤報分析（§1.3）
+│   ├── upload_to_hf.py              # XGBoost 權重/模型卡上傳 Hugging Face（D19）
 │   └── check_public_text.py         # 公開文案守門（Phase 0 自既有專案移植）
 ├── src/fallguard/                   # src layout（hatchling packages=["src/fallguard"]）
 │   ├── config.py                    # .env 載入、金鑰 mapping（D7）、模型字串
 │   ├── pose.py                      # YOLO26-pose 包裝（stream、track、quantize=16）
 │   ├── features.py                  # 特徵定義（第 7.3 節）+ 滑動視窗
 │   ├── rules.py                     # 規則式判定（閾值邏輯）
-│   ├── classifier.py                # XGBoost/GRU 載入與推論
 │   ├── fsm.py                       # 狀態機（第 8.1 節），純函式可測
 │   ├── vlm.py                       # init_chat_model + base64 content block
 │   ├── notify.py                    # Discord webhook multipart + 429 處理
-│   └── detect.py                    # CLI：python -m fallguard.detect --source {path|0}
+│   └── detect.py                    # CLI：python -m fallguard.detect --source {path|0}（含 RollingFps、--benchmark）
+│   （D20：不建立 classifier.py——XGBoost 推論邏輯已在 evaluate.py，即時偵測只用規則式 FSM，避免無呼叫端的重造）
 ├── tests/                           # 扁平佈局
 │   ├── test_features.py             # 合成關鍵點 → 已知角度/速度
-│   ├── test_rules.py / test_fsm.py  # 狀態機純邏輯（含「慢速躺下不告警」）
+│   ├── test_fsm.py                  # 狀態機純邏輯（含「慢速躺下不告警」）
 │   ├── test_splits.py               # 防洩漏守門：fold 群組交集為空
-│   ├── test_notify.py               # mock webhook、429 retry、VLM 失敗 fallback
+│   ├── test_notify.py               # mock webhook、429 retry
+│   ├── test_vlm.py                  # VLM 失敗 fallback、`.text` 正規化行為
+│   ├── test_prepare_data.py         # npz schema；資料不存在時 skip
 │   ├── test_docs.py                 # README/PLAN 必含章節守門
 │   └── test_smoke.py
 ├── .env / .env.example / .gitignore / .python-version(3.11)
@@ -358,7 +368,7 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 
 ## 10. README 最終樣貌（= Phase 4 驗收 checklist）
 
-1. 標題 + badges（Python 3.11 / uv / MIT）+ **demo GIF**
+1. 標題 + badges（tests / Python 3.11 / uv / MIT）+ **demo GIF**
 2. ~~為什麼做這個專案~~（使用者決定拿掉，見 D33；CLAUDE.md 原則上要求此段，本專案為個別例外）
 3. 系統架構（第 3 章兩張 mermaid）
 4. 模型選型：表1 pose（YOLO26 n/s/m mAP/延遲/選 m 理由/ultralytics 版本/依據連結）；表2 分類器（rule vs XGB (vs GRU) 成績）；表3 VLM 分工（GEMINI_MODEL 主力 / OPENAI_MODEL 備援）+ 台灣模型生態觀察註記（CLAUDE.md 六要素之「台灣模型 vs 基準模型對照表」在本專案以此形式呈現——CV 主體暫無台製開源模型可對照，屬計畫階段已揭露的合理偏離）
@@ -404,17 +414,17 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 | resume-context | 計畫階段（已建） | 回專案第一動作：唯讀恢復脈絡 |
 | update-progress | 計畫階段（已建） | 收工/收 Phase 的 PROGRESS.md 固定格式 + 三檔一致 checklist + tag |
 | public-copy-check | 計畫階段（已建） | 公開產出守門 |
-| extract-keypoints | Phase 1 完成當天 | download→prepare 標準流程、npz schema、重抽判斷 |
-| colab-roundtrip | Phase 3 完成當天 | npz 打包上傳、版本 pin、權重回程驗證、HF 上傳 |
-| demo-release | Phase 4 完成當天 | detect 標準跑法、GIF 錄製指令、README 收尾 checklist |
+| ~~extract-keypoints~~ | ~~Phase 1 完成當天~~ → **未建立，收尾複查時發現** | 原規劃：download→prepare 標準流程沉澱成 skill；實際上這個流程本來就只有一行指令（見 README 快速開始），沒有值得沉澱的隱性知識，多開一支 skill 屬於過早抽象，予以取消 |
+| ~~colab-roundtrip~~ | ~~Phase 3 完成當天~~ → **未建立，同上** | 原規劃：npz 打包上傳/版本 pin/HF 上傳流程沉澱成 skill；實際上這些步驟已完整寫進 D17-D19 決策記錄與 `notebooks/` 本身，重複建一份 skill 不會增加資訊，取消 |
+| ~~demo-release~~ | ~~Phase 4 完成當天~~ → **未建立，同上** | 原規劃：detect 標準跑法/GIF 錄製流程沉澱成 skill；實際上 demo 錄製是一次性腳本（見 D23、D26-D32），不是可重複套用的固定流程，沉澱成 skill 意義不大，取消 |
 
-- 後三支的原則：**在對應 Phase 第一次跑完該流程的當天**，用當天實際執行過的指令沉澱成 skill，不寫想像流程。
+- 後三支原訂於「對應 Phase 第一次跑完該流程的當天」建立，但三個 Phase 陸續完成時都判斷該流程沒有值得沉澱的隱性知識（已有決策記錄/README 涵蓋），故未建立；收尾複查（本輪）時補上此說明，避免讓讀者誤以為是遺漏而非刻意決定。
 
 ## 14. 收尾一致性檢查清單（發布前逐項）
 
 - [x] ~~README 第一人稱動機段~~ → **使用者決定整段拿掉，不需要這個章節（D33），此項不適用**
 - [x] 兩張 mermaid 圖正常渲染 → 已用瀏覽器 `read_page` 實測確認渲染為 `mermaid rendered output container`，非原始碼區塊
-- [ ] 評估數字表完整（LOSO 主協定 + 分層 + 事件級）→ LOSO/事件級/混淆矩陣皆已完整（D25 補上混淆矩陣），**站姿/坐姿分層因 URFD 無官方逐段對照表持續從缺**，README/rule_baseline.md 皆誠實揭露此限制，不視為阻擋發布的缺口
+- [x] 評估數字表完整（LOSO 主協定 + 分層 + 事件級）→ LOSO/事件級/混淆矩陣皆已完整（D25 補上混淆矩陣），**站姿/坐姿分層因 URFD 無官方逐段對照表持續從缺**，README/rule_baseline.md 皆誠實揭露此限制，D25 稽核確認不視為阻擋發布的缺口
 - [x] demo.gif ≤8MB 且 README 首屏可見 → 2.43MB，README.md:8 首屏可見，`tests/test_docs.py` 守門
 - [x] MIT LICENSE、.env.example 齊備
 - [x] 公開文案掃描：無公司名/產品名/內部術語/本機路徑/金鑰（check_public_text.py 全綠）
@@ -422,3 +432,4 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 - [x] HF 權重連結有效、模型卡過 public-copy-check → <https://huggingface.co/steven0226/fall-guard-cv-xgboost> 已用 WebFetch 複查
 - [x] `uv run pytest` 全綠；`uv lock` 已鎖定；README 關鍵套件版本表與 lock 一致 → 43 passed
 - [x] PROGRESS.md 快速回憶區更新為「已發布」狀態 → 已記錄 repo 公開網址與驗證結果
+- [x] GitHub Actions CI 建置並跑綠 → `.github/workflows/test.yml`（D37/D38），`gh run list` 確認 `completed success`，README 有對應 tests 徽章
