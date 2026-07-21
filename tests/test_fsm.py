@@ -170,3 +170,33 @@ def test_high_missing_rate_freezes_state_machine():
 
     final_state = _run(fsm, occlusion_frames)
     assert final_state == State.ON_GROUND, "缺失率過高時應凍結在原狀態,不應被重置回 NORMAL"
+
+
+def test_lying_elapsed_s_tracks_on_ground_countdown():
+    """`lying_elapsed_s` 供 detect.py 疊加 ON_GROUND 倒數用:NORMAL 時為 None,進 ON_GROUND 後隨時間累加。"""
+    fsm = FallStateMachine(FSMConfig(confirm_seconds=2.0))
+    dt = 1.0 / 25
+    t = 0.0
+    assert fsm.lying_elapsed_s is None
+
+    for _ in range(25):
+        fsm.step(_frame(t, theta=5.0, v_y=0.1, rho=0.35, hip_height=0.9))
+        t += dt
+    assert fsm.lying_elapsed_s is None, "NORMAL 狀態不應有躺姿累積計時"
+
+    for _ in range(5):
+        fsm.step(_frame(t, theta=30.0, v_y=3.0, rho=0.6, hip_height=0.6))
+        t += dt
+    assert fsm.state == State.FALLING
+    assert fsm.lying_elapsed_s is None, "FALLING 尚未進 ON_GROUND,不應有躺姿累積計時"
+
+    fsm.step(_frame(t, theta=80.0, v_y=0.0, rho=1.5, hip_height=0.2))
+    t += dt
+    assert fsm.state == State.ON_GROUND
+    assert fsm.lying_elapsed_s == 0.0, "剛進 ON_GROUND 的第一幀,累積時間應為 0"
+
+    for _ in range(12):  # 再躺 0.48s,尚未達 confirm_seconds=2.0
+        fsm.step(_frame(t, theta=80.0, v_y=0.0, rho=1.5, hip_height=0.2))
+        t += dt
+    assert fsm.state == State.ON_GROUND
+    assert fsm.lying_elapsed_s is not None and 0.4 < fsm.lying_elapsed_s < 0.6
