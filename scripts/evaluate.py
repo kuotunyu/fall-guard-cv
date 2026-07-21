@@ -407,6 +407,25 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
         "",
         "**偵測延遲定義**：演算法延遲 = GT 撞擊幀(第一個 raw_label==1 的幀)→ 進入 ON_GROUND;"
         "告警延遲 = 撞擊 → CONFIRMED(含刻意設計的 N 秒確認)。",
+        "",
+        "## 混淆矩陣（視窗級，折內調參後）",
+        "",
+        "| 折 | TN | FP | FN | TP |",
+        "|---|---|---|---|---|",
+    ]
+    agg_tn = agg_fp = agg_fn = agg_tp = 0
+    for r in fold_results:
+        cm = r["window_tuned"].get("confusion_matrix")
+        if not cm:
+            continue
+        (tn, fp), (fn, tp) = cm
+        agg_tn, agg_fp, agg_fn, agg_tp = agg_tn + tn, agg_fp + fp, agg_fn + fn, agg_tp + tp
+        lines.append(f"| {r['fold_name']} | {tn} | {fp} | {fn} | {tp} |")
+    lines += [
+        f"| **加總** | **{agg_tn}** | **{agg_fp}** | **{agg_fn}** | **{agg_tp}** |",
+        "",
+        "TN=真陰性(正確判斷非跌倒)、FP=誤報(把非跌倒判成跌倒)、FN=漏報(把跌倒判成非跌倒)、TP=真陽性(正確判斷跌倒)；"
+        "此表為視窗級(1.5 秒滑動視窗)統計，非事件級(整段影片)統計，兩者不可互換解讀。",
     ]
 
     out_path.write_text("\n".join(lines), encoding="utf-8")

@@ -1,5 +1,9 @@
 # fall-guard-cv:居家即時跌倒偵測與家人通報
 
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)](https://github.com/astral-sh/uv)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > 🚧 開發中。進度見 [PROGRESS.md](PROGRESS.md),完整開發藍圖見 [docs/PLAN.md](docs/PLAN.md)。
 
 ![示範:規則式狀態機從 NORMAL 判定到 ALERTED 通報家人](docs/assets/demo.gif)
@@ -155,6 +159,15 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 | P3 | 0.800 | 0.800 |
 | P4 | 0.700 | 0.700 |
 | P5 | 0.636 | 0.636 |
+
+### 混淆矩陣（視窗級，折內調參後，5 折加總）
+
+| | 預測：非跌倒 | 預測：跌倒 |
+|---|---|---|
+| **實際：非跌倒** | TN = 1207 | FP = 46 |
+| **實際：跌倒** | FN = 29 | TP = 115 |
+
+FP(誤報)遠多於 FN(漏報)，符合這個系統的設計優先順序——寧可誤報家人多看一眼，也不要漏掉真的跌倒。各折逐一數字見 [docs/results/rule_baseline.md](docs/results/rule_baseline.md)。
 
 ### 事件級指標（整段影片是否被狀態機正確判定）
 

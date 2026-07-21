@@ -57,6 +57,8 @@
 | D21 | 2026-07-21 | **1-slot 佇列(即時攝影機丟舊幀設計)拿來測固定長度影片檔的吞吐量會失效**：capture thread 若不配速,會在 main thread 還沒載完模型前就把整支短片(URFD 約 5s)瞬間讀完丟棄,main thread 只看得到最後 1 幀。修正兩處：(1) 影片檔來源預設依原生 fps 配速讀取(`capture_loop` 的 `target_dt` 參數),模擬真實攝影機逐幀到達的節奏,讓事件鏈(CONFIRMED→截圖→VLM→Discord)能在合理的模擬時間內被觸發；(2) 新增 `--benchmark`:完全獨立、不透過 1-slot 佇列/capture thread 的單執行緒迴圈(`run_benchmark()`),影片放完就繞回開頭重播湊滿 `min_frames=300`,專門量測 pose 推論+特徵計算+狀態機的真實吞吐量上限,兩種量測目的不同,不能共用同一套佇列架構 | 修正前:`--source fall-01-cam0.mp4 --no-display` 只處理 1 幀。修正後:配速模式在 5.4s 內處理 83 幀;`--benchmark` 穩定量到平均 **42.8 FPS**(RTX 4090,yolo26m-pose fp16),通過 DoD ≥30 FPS 門檻 |
 | D22 | 2026-07-21 | **`vlm.py` 修正一個真實 bug**:`response.content` 有時是純字串,有時是 content block 的 list（例如 `[{"type": "text", "text": "...", "extras": {...}}]`，取決於 provider/回應格式）,早期實作直接 `str(response.content)` 會把整個 Python list/dict 結構原樣塞進 Discord 通報文字。改用 `langchain_core` 訊息物件的 `.text` 屬性(正規化屬性,固定回傳串接後的純文字,不需自己判斷型別)。已在 `tests/test_vlm.py` 補迴歸測試,用真正的 `AIMessage(content=[...])` 而非自製假物件驗證 | 用真實 `GEMINI_MODEL`(已設定 `GEMINI_API_KEY`)對 `fall-01-cam0.mp4` 跑完整事件鏈,親眼看到修正前輸出 `[{'type': 'text', 'text': '...', 'extras': {...}}]`、修正後輸出乾淨的繁中描述文字(含正確的姿態/環境/嚴重程度分析) |
 | D23 | 2026-07-21 | **demo.gif 因 URFD 資料集本身限制做了幾個取捨**：(1) URFD cam0 影片是「深度圖(左半)+ RGB(右半)」左右拼接的單一畫面(640x240),本專案只用 RGB(D1 既有決策),demo 錄製時裁掉深度圖半邊,只保留 RGB 側疊加骨架/狀態/特徵文字。(2) URFD fall 片段普遍很短(實測 2.4–5.3s),不足以在裡面同時呈現「NORMAL 基準 2-4s + ON_GROUND 倒數 3-4s」的第 9 章理想腳本;改用短 `confirm_seconds`(demo 專用,非部署預設 10s)讓 CONFIRMED/ALERTED 能在片段內出現,並在真實影格用完、狀態仍停在 ON_GROUND 時,用**最後一個有效(非 torso_missing)姿態凍結延伸**幾幀讓狀態機走完全程(不是編造新資料,只是假設最後那個姿勢多撐幾秒)。(3) 最終未附「Discord 收到通知」的實機畫面——`DISCORD_WEBHOOK_URL` 是使用者待辦事項(尚未建立),寧可誠實省略也不偽造截圖。README 已在 GIF 說明段落揭露以上取捨,不當成正式評估數字看待 | `docs/assets/demo.gif`:480x360、12fps、2.55MB(≤8MB 上限)、7.25s;`tests/test_docs.py` 守門確保檔案存在且不超過 8MB |
+| D24 | 2026-07-21 | **使用者用實體攝影機完成 Phase 4 最後一塊真實環境驗證**：`uv run python -m fallguard.detect --source 0`,在鏡頭前真人倒地(非影片檔模擬)。驗證結果：pose/骨架疊加/狀態標籤/FPS 讀數即時顯示正常；狀態機正確判定 CONFIRMED；VLM 用真實 `GEMINI_MODEL` 產出兩次現場描述,內容涵蓋姿態、周遭環境、意識狀態、嚴重程度 1-5 分與理由,品質良好、可供家人快速判讀；Discord 頻道實際收到兩則通報(embed 格式)。至此 detect.py 的 webcam 路徑與 Discord 真實送達兩項先前只能靠程式碼審查/mock 驗證的項目,補上真實環境證據，Phase 4 全部 DoD 項目完成 | 使用者親自操作並回報:「我故意跌倒在地上，有收到 discord 通知」，附上兩則實際收到的通報文字內容 |
+| D25 | 2026-07-21 | **37-agent 完整度稽核發現兩個真正被漏掉的第 10 章/第 14 章項目，已補上**：(1) README 標題下缺 badges（Python 3.11 / uv / MIT）；(2) `evaluate.py` 的 `window_level_metrics()` 早就有算混淆矩陣(`confusion_matrix(...).tolist()`)，但從沒有任何報告(README/`docs/results/*.md`)實際顯示過——只用衍生出來的 precision/recall/F1 呈現，原始 TN/FP/FN/TP 數字從未曝光。稽核同時發現大量「PLAN.md 第 14 章 checkbox 沒打勾，但實際工作早就做完」的假陽性(mermaid 渲染、demo.gif、MIT/env.example、public-copy-check、URFD 引用、HF 連結、pytest/uv.lock 一致性、PROGRESS.md 發布狀態)，這些純屬文件記帳落後於實際進度，一併補勾；真正卡住發布的只剩 README 動機段待使用者本人審閱。修正：`write_report()` 新增「混淆矩陣（視窗級，折內調參後）」章節(5 折逐一 + 加總)，README 評估結果新增對應加總表 | 稽核方法：4 個平行掃描 agent(分別讀 PLAN.md/PROGRESS.md/README.md-vs-PLAN§10/即時 repo 狀態)找出 33 個候選缺口,再用 33 個獨立 verify agent 逐一對照當下 repo 實際內容重新查證,得到 10 個真缺口(其中 5 個是同一件事的不同措辭)、18 個「文件記帳落後」假警報、5 個純誤判。修正後 `uv run python scripts/evaluate.py --model rule --protocol loso` 重新產生 `docs/results/rule_baseline.md`,15 項 F1 數字與修正前完全一致(0.778/0.764/0.800/0.700/0.636),確認修正未影響既有評估邏輯;`uv run pytest -q` 43 passed;`check_public_text.py` 全綠 |
 
 ## 3. 系統架構
 
@@ -242,9 +244,9 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 4 即時偵測 + 通報 + demo 收尾（約 1.5–2 天）
 
-- [x] `uv run python -m fallguard.detect --source <mp4>` 疊加骨架 + bbox + 狀態標籤（NORMAL 綠 / FALLING 黃 / ON_GROUND 橙+計秒 / CONFIRMED 紅 / ALERTED 紅）+ 三條特徵即時讀數；結束印平均 FPS。**`--benchmark` 實測 42.8 FPS**（RTX 4090,yolo26m-pose fp16,不含畫面顯示),超過 ≥30 FPS 門檻但未達「100+」的理論值(差距來自逐幀特徵計算,已記入 D21) → **`--source 0`(webcam)程式碼邏輯與 mp4 走同一路徑,但本機開發環境沒有接實體攝影機可供 AI 測試,待使用者實機驗證**
-- [x] 執行緒模型（第 8.4 節）：capture（1-slot queue,依來源原生 fps 配速)/ main（推論+疊加）/ alert worker（非同步 VLM+Discord，主迴圈不等待）→ **實測驗證(D21):修正 1-slot 佇列吃掉整支短片的 bug 後,配速/事件鏈皆正常**
-- [x] 事件鏈實測：CONFIRMED → `events/` 存截圖（撞擊幀+確認幀）→ VLM 描述（`LOCAL_ONLY` 時跳過）→ Discord 送出嘗試；冷卻/升級再告警邏輯沿用已測試的 `fsm.py`；VLM 失敗/被安全過濾 → 純文字通報照發；429 → 依 `retry_after` 重送 → **VLM 已用真實 `GEMINI_MODEL` 對 URFD 影片跑出正確描述文字(過程中修正 D22 的 content-block bug);Discord 因 `DISCORD_WEBHOOK_URL` 尚未設定,只驗證到「正確偵測未設定並印出訊息、不中斷主迴圈」這一步,`send_fall_alert` 成功送出/429 重送/附圖開關均由 `tests/test_notify.py` mock 驗證 —— 真實 Discord 頻道收到通報這一步待使用者建立 webhook 後自行驗證**
+- [x] `uv run python -m fallguard.detect --source <mp4>` 與 `--source 0`（webcam）疊加骨架 + bbox + 狀態標籤（NORMAL 綠 / FALLING 黃 / ON_GROUND 橙+計秒 / CONFIRMED 紅 / ALERTED 紅）+ 三條特徵即時讀數；結束印平均 FPS。**`--benchmark` 實測 42.8 FPS**（RTX 4090,yolo26m-pose fp16,不含畫面顯示),超過 ≥30 FPS 門檻但未達「100+」的理論值(差距來自逐幀特徵計算,已記入 D21) → **使用者已用實體攝影機 + 真人實際倒地完整測試過(D24),webcam 路徑確認正常**
+- [x] 執行緒模型（第 8.4 節）：capture（1-slot queue,依來源原生 fps 配速)/ main（推論+疊加）/ alert worker（非同步 VLM+Discord，主迴圈不等待）→ **實測驗證(D21):修正 1-slot 佇列吃掉整支短片的 bug 後,配速/事件鏈皆正常；D24:webcam 即時串流下同樣正常**
+- [x] 事件鏈實測：CONFIRMED → `events/` 存截圖（撞擊幀+確認幀）→ VLM 描述（`LOCAL_ONLY` 時跳過）→ Discord embed+附圖送達；冷卻/升級再告警邏輯沿用已測試的 `fsm.py`；VLM 失敗/被安全過濾 → 純文字通報照發；429 → 依 `retry_after` 重送 → **完整驗證通過(D24)：使用者用實體攝影機在鏡頭前真人倒地,VLM 用真實 `GEMINI_MODEL` 產出正確現場描述(姿態/環境/意識狀態/嚴重程度 1-5 分皆合理),Discord 頻道實際收到兩則通報(對應兩次觸發),文字內容清楚可判讀。至此 CONFIRMED→截圖→VLM→Discord 全鏈路皆為真實環境驗證,不再只是 mock/理論路徑**
 - [x] VLM 呼叫前印成本估算（第 11 章公式,`detect.py` 啟動時印出;`LOCAL_ONLY=true` 時略過印出與呼叫)
 - [x] `docs/assets/demo.gif` 嵌入 README,對第 9 章規格做了幾個因資料集限制而生的取捨(見 D23,已在 README 誠實揭露)
 - [x] README 全章節完成（第 10 章 checklist 逐項打勾;`tests/test_docs.py` 新增守門)；public-copy-check 全綠；`uv run pytest` 43 passed 全綠 → **`git tag phase-4` 待使用者 commit 後自行執行**
@@ -397,13 +399,13 @@ multipart：`data={"payload_json": json.dumps({"embeds":[embed]})}` + `files={"f
 
 ## 14. 收尾一致性檢查清單（發布前逐項）
 
-- [ ] README 第一人稱動機段（使用者已過目修改）
-- [ ] 兩張 mermaid 圖正常渲染
-- [ ] 評估數字表完整（LOSO 主協定 + 分層 + 事件級）
-- [ ] demo.gif ≤8MB 且 README 首屏可見
-- [ ] MIT LICENSE、.env.example 齊備
-- [ ] 公開文案掃描：無公司名/產品名/內部術語/本機路徑/金鑰（check_public_text.py 全綠）
-- [ ] URFD 引用（Kwolek & Kepski 2014）與 CC BY-NC-SA 註記在 README 與 GIF 說明處
-- [ ] HF 權重連結有效、模型卡過 public-copy-check
-- [ ] `uv run pytest` 全綠；`uv lock` 已鎖定；README 關鍵套件版本表與 lock 一致
-- [ ] PROGRESS.md 快速回憶區更新為「已發布」狀態
+- [ ] README 第一人稱動機段（使用者已過目修改）→ **仍是 AI 草稿，待使用者本人審閱修改（唯一真正卡住發布的項目）**
+- [x] 兩張 mermaid 圖正常渲染 → 已用瀏覽器 `read_page` 實測確認渲染為 `mermaid rendered output container`，非原始碼區塊
+- [ ] 評估數字表完整（LOSO 主協定 + 分層 + 事件級）→ LOSO/事件級/混淆矩陣皆已完整（D25 補上混淆矩陣），**站姿/坐姿分層因 URFD 無官方逐段對照表持續從缺**，README/rule_baseline.md 皆誠實揭露此限制，不視為阻擋發布的缺口
+- [x] demo.gif ≤8MB 且 README 首屏可見 → 2.43MB，README.md:8 首屏可見，`tests/test_docs.py` 守門
+- [x] MIT LICENSE、.env.example 齊備
+- [x] 公開文案掃描：無公司名/產品名/內部術語/本機路徑/金鑰（check_public_text.py 全綠）
+- [x] URFD 引用（Kwolek & Kepski 2014）與 CC BY-NC-SA 註記在 README 與 GIF 說明處
+- [x] HF 權重連結有效、模型卡過 public-copy-check → <https://huggingface.co/steven0226/fall-guard-cv-xgboost> 已用 WebFetch 複查
+- [x] `uv run pytest` 全綠；`uv lock` 已鎖定；README 關鍵套件版本表與 lock 一致 → 43 passed
+- [x] PROGRESS.md 快速回憶區更新為「已發布」狀態 → 已記錄 repo 公開網址與驗證結果
