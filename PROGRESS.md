@@ -9,11 +9,11 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-21
-**現在做到哪**：**Phase 3 完成**：XGBoost 在 Colab 訓練完成、本機重現驗證全數通過(誤差 0.000，過程修正 D18 bug)，GRU(3b)使用者決定不做，權重已上傳 Hugging Face（<https://huggingface.co/steven0226/fall-guard-cv-xgboost>，公開，D19）。README 模型選型章節已回填 rule vs XGBoost 對照表 + HF 連結。`uv run pytest -q` 26 passed。**尚差 `git tag phase-3`（使用者自行執行）**。
-**下一步（開機第一件事）**：使用者 commit 本輪異動並打 `git tag phase-3`；之後開 Phase 4——即時偵測介面(`src/fallguard/detect.py`)、VLM 描述(`vlm.py`)、Discord 通報(`notify.py`)、執行緒模型。動工前先查官方文件確認 langchain-google-genai／Discord API 現行用法(D4/D5 已有前期查證,但實作前再次確認版本未過期)。
+**現在做到哪**：**Phase 4 功能面完成**：`detect.py`(三執行緒即時偵測)/`pose.py`/`vlm.py`/`notify.py` 全部寫完並實測跑通完整事件鏈(CONFIRMED→截圖→VLM 真實呼叫成功→Discord 送出嘗試)；`--benchmark` 實測 42.8 FPS(RTX 4090,超過 30 FPS 門檻)；`docs/assets/demo.gif` 已錄製並嵌入 README；README 全章節填完(動機段為草稿,待使用者過目修改)；`uv run pytest -q` 43 passed；`check_public_text.py` 全綠。**尚差**：(1) webcam(`--source 0`)未經實機測試(本機開發環境無實體攝影機)；(2) Discord 真實送達未驗證(webhook 未設定，只驗證到「正確偵測未設定並優雅失敗」)；(3) README 動機段待使用者審閱修改(PLAN.md 第 14 章收尾清單要求)；(4) `git tag phase-4`(使用者自行執行)。
+**下一步（開機第一件事）**：使用者 commit 本輪異動並打 `git tag phase-4`；接著建立 Discord Webhook 填入 `.env` 的 `DISCORD_WEBHOOK_URL`，用實體攝影機跑一次 `uv run python -m fallguard.detect --source 0` 驗證 webcam 路徑與真實 Discord 送達；審閱並修改 README「為什麼做這個專案」草稿。四項都完成後專案即可視為正式發布(PLAN.md 第 14 章收尾清單)。
 **未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2）。
-**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 通報測試前必須完成）。(2) **本輪（D18/D19、README/PLAN.md/PROGRESS.md 更新、upload_to_hf.py）的 git commit + `git tag phase-3` 由使用者自行執行**。
-**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。ultralytics `half=True` 已棄用，一律用 `quantize=16`（D14）。ultralytics 下載的 `.pt` 權重會先落在 CWD，`prepare_data.py` 已自動搬進 `models/pretrained/`（已 gitignore）。**cv2 GUI 視窗失焦時按鍵會被 OS 排隊，恢復焦點瞬間可能暴衝連續觸發**——`annotate_urfd.py` 已加 400ms 按鍵沖刷防護。**LOSO 的 P3/P4/P5 折沒有 ADL 測試樣本**（D15，evaluate.py/README 已處理成 N/A 不硬平均）。**任何狀態機/計時邏輯寫 NaN 防呆時，純時間判斷(逾時/確認/冷卻)必須獨立於特徵值是否缺失都照常執行**（D16 血淚教訓，未來寫 detect.py 部署版時要記得）。**評估用的跌倒確認秒數不是寫死 2s，是折內調參出來的**（D16 取代 D11 假設，grid 見 evaluate.py TUNE_CONFIRM_SECONDS_GRID）。matplotlib 中文圖表記得設定 `font.family` 為系統中文字型（msjh.ttc），預設字型沒有中文字形。
+**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`，驗證真實通報送達。(2) 用實體攝影機驗證 `--source 0` 路徑。(3) 審閱/修改 README 動機段草稿。(4) **本輪的 git commit + `git tag phase-4` 由使用者自行執行**。
+**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。ultralytics `half=True` 已棄用，一律用 `quantize=16`（D14）。ultralytics 下載的 `.pt` 權重會先落在 CWD，`prepare_data.py` 已自動搬進 `models/pretrained/`（已 gitignore）。**cv2 GUI 視窗失焦時按鍵會被 OS 排隊，恢復焦點瞬間可能暴衝連續觸發**——`annotate_urfd.py` 已加 400ms 按鍵沖刷防護。**LOSO 的 P3/P4/P5 折沒有 ADL 測試樣本**（D15，evaluate.py/README 已處理成 N/A 不硬平均）。**任何狀態機/計時邏輯寫 NaN 防呆時，純時間判斷(逾時/確認/冷卻)必須獨立於特徵值是否缺失都照常執行**（D16 血淚教訓）。**評估用的跌倒確認秒數不是寫死 2s，是折內調參出來的**（D16 取代 D11 假設）。matplotlib 中文圖表記得設定 `font.family` 為系統中文字型（msjh.ttc）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度的短影片檔會失效**——capture thread 配速沒開時會在 main thread 準備好之前就把整支片瞬間讀完丟棄，量吞吐量務必用不透過佇列的獨立單執行緒迴圈(`detect.py --benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串也可能是 content block 的 list，一律用 `.text` 屬性取值，不要 `str(response.content)`**（D22 血淚教訓，會把整包 dict/list 結構原樣印進通報文字）。**同一個畫面緩衝區重複疊字時，底色矩形必須固定寬度，不能依當下文字動態縮小**——不然文字變短的那一幀會蓋不住前一幀較寬的殘留文字(demo 錄製時發現，detect.py `overlay_frame` 已修正)。
 
 ## 📜 Phase 日誌（append-only）
 
@@ -95,4 +95,29 @@
   - `uv run python scripts/upload_to_hf.py --repo-id steven0226/fall-guard-cv-xgboost` → 上傳成功；WebFetch 確認 HF 頁面檔案清單與模型卡渲染正確
 - 決策連結：PLAN.md D17（視窗統計特徵匯出設計、xgboost 版本鎖定、模型回傳而非重訓練的理由）、D18（視窗篩選邏輯飄移 bug 與修正）、D19（HF 上傳、CC BY-NC-SA 4.0 授權選擇）。
 - 尚未完成：`git tag phase-3`（待使用者 commit 本輪後補上）。
+- **本輪 git commit/tag 由使用者自行執行**。
+
+### Phase 4 — 即時偵測 + 通報 + demo 收尾（2026-07-21 功能面完成，tag: phase-4 待打）
+
+- 完成：
+  - `src/fallguard/pose.py`：`PoseEstimator` 包裝 `model.track()` 逐幀即時推論（`persist=True`/`quantize=16`/`max_det=1`），與 `prepare_data.py` 共用權重快取邏輯。
+  - `src/fallguard/vlm.py`：`describe_scene()` 呼叫 Gemini VLM 描述現場，`safety_settings` 放寬 DANGEROUS_CONTENT；任何失敗（安全過濾/例外/空回應）一律回傳預留文字不拋例外。
+  - `src/fallguard/notify.py`：`send_fall_alert()` Discord webhook multipart 送出，429 依 `retry_after` 重送一次，`SEND_IMAGE=false` 只送文字。
+  - `src/fallguard/detect.py`：三執行緒（capture 1-slot 佇列/main 推論+特徵+狀態機+疊加/alert worker 非同步 VLM→Discord）；特徵計算重用 `features.py` 對滑動緩衝區重跑（不寫增量版，呼應 D18 教訓，見 D20）；`--benchmark` 獨立單執行緒吞吐量測試（見 D21）。
+  - **範圍決策（D20）**：不建立 `classifier.py`，即時偵測只用規則式 FSM——XGBoost 推論邏輯已存在於 `evaluate.py`，即時路徑另建一份沒有呼叫端的重複程式碼屬於過早抽象。
+  - `fsm.py` 新增 `lying_elapsed_s` 屬性，供 UI 顯示 ON_GROUND 倒數秒數。
+  - `tests/test_notify.py`（6 項，mock webhook：成功/附圖/429 重送/未設定）、`tests/test_vlm.py`（4 項，含 D22 迴歸測試）、`tests/test_fsm.py` 新增 `lying_elapsed_s` 測試、新建 `tests/test_docs.py`（README/PLAN 必含章節守門，5 項）。
+  - `docs/assets/demo.gif`：用真實 URFD fall-01 影格時間戳跑完整管線錄製，480x360/12fps/2.55MB/7.25s，因資料集限制做了幾個取捨（D23）。
+  - README 全章節填完：動機段草稿、pose/VLM 選型表、隱私設計、成本估算、關鍵套件版本表、即時偵測章節。
+- 過程中發現並修正的 bug（均已記入 Decision Log）：
+  - **D21**：1-slot 即時佇列（丟舊幀設計）測固定長度短影片檔會失效——capture thread 不配速會在 main thread 準備好之前把整支片讀完丟棄。修正：影片檔來源依原生 fps 配速；新增 `--benchmark` 獨立單執行緒迴圈量真實吞吐量。
+  - **D22**：`vlm.py` 的 `response.content` 有時是 content block list 而非純字串，直接 `str()` 會把整包 dict/list 結構原樣塞進通報文字；改用 `.text` 正規化屬性。用真實 GEMINI_MODEL 呼叫實測驗證修正前後差異。
+  - overlay 疊字底色矩形若依當下文字寬度動態縮小，同一畫面緩衝區連續疊字時會蓋不住前一幀較寬的殘留文字（demo 錄製凍結延伸階段發現）——改回固定寬度矩形。
+- 驗證證據（2026-07-21 實測）：
+  - `uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benchmark` → `[benchmark] 共處理 300 幀，耗時 7.02s，平均 FPS=42.8`
+  - `uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --no-display --confirm-seconds 0.3` → 完整事件鏈跑通：`[detect] 確認跌倒` → VLM 回傳正確繁中描述（含姿態/環境/嚴重程度分析）→ `[notify] DISCORD_WEBHOOK_URL 未設定，略過送出`（優雅失敗，不中斷主迴圈）；`events/` 正確存下 impact+confirm 兩張截圖（人工檢視截圖內容正確：URFD 房間、人物倒地）
+  - `uv run pytest -q` → `43 passed`
+  - `uv run python scripts/check_public_text.py` → 全綠
+- 決策連結：PLAN.md D20（detect.py 範圍決策：不建 classifier.py）、D21（1-slot 佇列與 --benchmark 設計）、D22（VLM `.text` bug 修正）、D23（demo.gif 取捨）。
+- 尚未完成：webcam(`--source 0`)實機測試（本機開發環境無實體攝影機）；Discord 真實送達驗證（待使用者建立 webhook）；README 動機段待使用者審閱修改；`git tag phase-4`。
 - **本輪 git commit/tag 由使用者自行執行**。
