@@ -54,9 +54,23 @@ stateDiagram-v2
 
 ## 模型選型
 
-<!-- TODO(Phase 3/4): 表1 pose 模型對照(YOLO26 n/s/m,mAP/延遲/選型理由/版本號);表2 分類器成績(rule vs XGBoost (vs GRU));表3 VLM 分工;台灣模型生態觀察註記 -->
+<!-- TODO(Phase 4): 表3 VLM 分工;台灣模型生態觀察註記 -->
 
-Pose 模型已於 Phase 1 選定 **YOLO26-pose**（ultralytics 官方 2026-01 發布之最新世代，NMS-free、對遮擋更穩），分類器與 VLM 對照表待 Phase 3/4 補齊。
+Pose 模型已於 Phase 1 選定 **YOLO26-pose**（ultralytics 官方 2026-01 發布之最新世代，NMS-free、對遮擋更穩），VLM 分工待 Phase 4 補齊。
+
+### 分類器對照：規則式 baseline vs XGBoost（LOSO，視窗級）
+
+XGBoost 使用 54 維視窗統計特徵（9 個基礎特徵 × mean/std/min/max/last−first/max|Δ| 六種統計量），在 Google Colab（T4）以 [notebooks/fall-guard-cv_train_xgboost_colab.ipynb](notebooks/fall-guard-cv_train_xgboost_colab.ipynb) 訓練，權重與本機重現驗證方式見 [docs/PLAN.md](docs/PLAN.md) D17/D18。
+
+| 折 | Precision（規則/XGB） | Recall（規則/XGB） | F1（規則/XGB） |
+|---|---|---|---|
+| P1 | 0.677 / 0.609 | 0.913 / 0.913 | 0.778 / 0.730 |
+| P2 | 0.656 / 0.575 | 0.913 / 0.913 | 0.764 / 0.706 |
+| P3 | 0.714 / 0.611 | 0.909 / 1.000 | 0.800 / 0.759 |
+| P4 | 1.000 / 1.000 | 0.538 / 0.444 | 0.700 / 0.615 |
+| P5 | 1.000 / 1.000 | 0.467 / 0.667 | 0.636 / 0.800 |
+
+**規則式（折內調參後）目前整體略優於 XGBoost 的預設超參數版本**，這符合小樣本情境的預期——URFD 只有 1499 個視窗、145 個正例，樹模型在這個規模下優勢有限；XGBoost 在 P5 折反而 recall 明顯領先（0.667 vs 0.467），顯示兩種方法的錯誤模式不同，並非單純的一方全面勝出。SHAP 特徵重要度分析（`models/xgboost/shap_summary.png`）顯示模型排名最高的特徵是 `y_std_min`、`hip_height_min`——跟規則式方法人工設計時鎖定的「髖高」核心判別特徵高度吻合，是一個有意思的交叉驗證。本機重現驗證：全部 15 項指標（5 折 × P/R/F1）與 Colab 訓練當下印出的數字誤差皆為 0.000（完全重現，過程中修正了一個視窗篩選邏輯不一致的 bug，見 D18）。
 
 ## 資料集與授權
 

@@ -130,6 +130,28 @@ def build_window_samples(video_ids: list[str], videos: dict[str, VideoData]) -> 
     return samples
 
 
+def build_xgb_stat_samples(video_ids: list[str], videos: dict[str, VideoData]) -> list[tuple[str, np.ndarray, int]]:
+    """XGBoost 用的視窗資料集(video_id, stat_vec, gt)。
+
+    排除條件刻意跟 `build_window_samples`(規則式分類器用,以 5 個原始特徵陣列是否全 NaN 判斷)不同——
+    XGBoost 吃的是 54 維統計向量,只有在全部 9 個基礎特徵都整段缺失(向量全零)時才真的沒有可用資料,
+    這也是 `prepare_train_export.py` 訓練資料採用的同一套邏輯(此函式被兩邊共用,避免 train/eval
+    視窗集合不一致——這正是 D18 發現的 bug 成因,曾經因為兩邊各自維護邏輯而各算各的)。
+    """
+    samples = []
+    for vid in video_ids:
+        video = videos[vid]
+        for w in make_windows(video.features):
+            gt = window_ground_truth(video, w.start_t, w.end_t)
+            if gt is None:
+                continue
+            stat_vec = window_stat_vector(video.features, w)
+            if np.all(stat_vec == 0):
+                continue
+            samples.append((vid, stat_vec, gt))
+    return samples
+
+
 # ---------- 閾值調參(只用 train 折) ----------
 
 
@@ -408,13 +430,13 @@ def load_xgb_fold_models() -> dict[str, "xgb.Booster"]:
     return models
 
 
-def xgb_window_metrics(samples: list[WindowSample], booster) -> dict:
+def xgb_window_metrics(samples: list[tuple[str, np.ndarray, int]], booster) -> dict:
     if not samples:
         return {"n": 0}
     import xgboost as xgb
 
-    X = np.stack([s.stat_vec for s in samples])
-    y_true = np.array([s.gt for s in samples])
+    X = np.stack([s[1] for s in samples])
+    y_true = np.array([s[2] for s in samples])
     scores = booster.predict(xgb.DMatrix(X))
     y_pred = (scores >= 0.5).astype(int)
 
@@ -450,14 +472,14 @@ def run_xgb_evaluation(protocol: str, videos: dict[str, VideoData]) -> None:
             print(f"警告:找不到 {subject} 的模型,跳過此折")
             continue
         test_ids = [v for v in fold["test"] if v in videos]
-        test_samples = build_window_samples(test_ids, videos)
+        test_samples = build_xgb_stat_samples(test_ids, videos)
         metrics = xgb_window_metrics(test_samples, models[subject])
         metrics["fold"] = subject
         local_results.append(metrics)
         print(f"  {subject}(本機重現): n={metrics['n']} P={_fmt(metrics.get('precision'))} R={_fmt(metrics.get('recall'))} F1={_fmt(metrics.get('f1'))}")
 
     colab_results_path = XGB_MODELS_DIR / "xgb_loso_results.json"
-    lines = ["# XGBoost 本機重現結果", "", f"模型來源：`{XGB_MODELS_DIR}`（Colab 訓練，見 notebooks/fall-guard-cv_train_xgboost_colab.ipynb）", ""]
+    lines = ["# XGBoost 本機重現結果", "", "模型來源：`models/xgboost/`（Colab 訓練，見 notebooks/fall-guard-cv_train_xgboost_colab.ipynb）", ""]
     if colab_results_path.exists():
         colab_data = json.loads(colab_results_path.read_text(encoding="utf-8"))
         colab_by_fold = {m["fold"]: m for m in colab_data["folds"]}

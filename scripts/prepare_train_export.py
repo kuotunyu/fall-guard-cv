@@ -14,34 +14,26 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evaluate import VideoData, load_all_videos, window_ground_truth  # noqa: E402
+from evaluate import VideoData, build_xgb_stat_samples, load_all_videos  # noqa: E402
 
 from fallguard.config import REPO_ROOT  # noqa: E402
-from fallguard.features import STAT_FEATURE_NAMES, make_windows, window_stat_vector  # noqa: E402
+from fallguard.features import STAT_FEATURE_NAMES  # noqa: E402
 
 OUT_PATH = REPO_ROOT / "data" / "export" / "xgb_windows.npz"
 
 
 def build_dataset(videos: dict[str, VideoData]) -> dict[str, np.ndarray]:
-    X_list, y_list, video_id_list, start_t_list = [], [], [], []
-    for vid, video in videos.items():
-        for w in make_windows(video.features):
-            gt = window_ground_truth(video, w.start_t, w.end_t)
-            if gt is None:
-                continue
-            vec = window_stat_vector(video.features, w)
-            if np.all(vec == 0):  # 整段缺失,無有效資料
-                continue
-            X_list.append(vec)
-            y_list.append(gt)
-            video_id_list.append(vid)
-            start_t_list.append(w.start_t)
+    # D18:視窗篩選邏輯只在 evaluate.py 的 build_xgb_stat_samples 維護一份,
+    # 這裡直接呼叫共用函式,不得重寫一份自己的篩選條件(曾因兩邊各自實作而 train/eval 視窗集合對不齊)。
+    samples = build_xgb_stat_samples(list(videos.keys()), videos)
+    X_list = [s[1] for s in samples]
+    y_list = [s[2] for s in samples]
+    video_id_list = [s[0] for s in samples]
 
     return {
         "X": np.stack(X_list).astype(np.float32),
         "y": np.array(y_list, dtype=np.int8),
         "video_id": np.array(video_id_list),
-        "start_t": np.array(start_t_list, dtype=np.float32),
         "feature_names": np.array(STAT_FEATURE_NAMES),
     }
 
