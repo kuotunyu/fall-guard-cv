@@ -139,6 +139,13 @@ def print_cost_estimate() -> None:
     print()
 
 
+def _translucent_rect(frame: np.ndarray, pt1: tuple[int, int], pt2: tuple[int, int], alpha: float = 0.55) -> None:
+    """半透明黑底(比純黑實心矩形不那麼搶畫面),原地疊在 frame 上。"""
+    overlay = frame.copy()
+    cv2.rectangle(overlay, pt1, pt2, (0, 0, 0), -1)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, dst=frame)
+
+
 def overlay_frame(
     frame: np.ndarray,
     state: State,
@@ -152,29 +159,50 @@ def overlay_frame(
     if state == State.ON_GROUND and lying_elapsed is not None:
         label = f"{state.value} {lying_elapsed:.1f}/{confirm_seconds:.1f}s"
 
-    # 標籤底色矩形固定夠寬(容納最長的 "ON_GROUND 10.0/10.0s" 字樣),不要依「這一幀」
-    # 文字寬度動態縮小——同一顆畫面緩衝區若連續疊字(例如上一幀 ON_GROUND 字比較寬、
-    # 這一幀 ALERTED 字比較窄),矩形變窄會蓋不到前一幀留下的字,殘影穿幫。FPS 已改放
-    # 右下角,跟這裡不共用邊界,固定寬度不會撞到它。
-    cv2.rectangle(frame, (0, 0), (min(frame.shape[1], 260), 34), (0, 0, 0), -1)
-    cv2.putText(frame, label, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    # 底色矩形尺寸只依「畫面高度」縮放(不依當下文字內容),避免兩個問題:
+    # (1) 固定絕對像素在低解析度來源(例如 demo 用的 URFD 240p 半格畫面)上佔比過大,
+    #     喧賓奪主;(2) 同一畫面緩衝區連續疊字時,矩形若依文字動態縮小會蓋不到
+    #     前一幀較寬的殘留文字(見 D23 demo 錄製時的教訓)。特徵讀數併成一行,
+    #     大幅縮短原本 3 行文字佔用的高度。
+    # 字級各自獨立設下限(不是共用同一個 scale 再往下乘)——例如 0.42*scale 這種
+    # 二次縮放,在 scale 已經是下限的窄畫面上會把字體壓到肉眼幾乎讀不出來。
+    scale = max(0.5, min(1.4, frame.shape[0] / 480))
+    label_font = max(0.45, min(1.0, 0.7 * scale))
+    feat_font = max(0.35, min(0.6, 0.42 * scale))
+    fps_font = max(0.35, min(0.6, 0.5 * scale))
 
-    y0 = frame.shape[0] - 80
-    cv2.rectangle(frame, (0, y0 - 10), (min(frame.shape[1], 200), frame.shape[0]), (0, 0, 0), -1)
+    # 底色寬度用「最長預期字樣」在該字級下量出來的實際寬度決定(不是量當下這幀的文字),
+    # 字級只依畫面尺寸而定、跟目前顯示什麼內容無關,所以每幀量出來的寬度都一樣寬,
+    # 不會有 D23 那種「換一幀文字變短、矩形跟著縮小蓋不到殘留字」的問題。
+    label_text_w, label_text_h = cv2.getTextSize("ON_GROUND 10.0/10.0s", cv2.FONT_HERSHEY_SIMPLEX, label_font, max(1, round(2 * scale)))[0]
+    label_h = label_text_h + int(18 * scale)
+    label_w = min(frame.shape[1], label_text_w + int(16 * scale))
+    _translucent_rect(frame, (0, 0), (label_w, label_h), alpha=0.55)
+    cv2.putText(frame, label, (int(8 * scale), int(label_h * 0.72)), cv2.FONT_HERSHEY_SIMPLEX, label_font, color, max(1, round(2 * scale)))
+
     if feats is not None:
-        lines = [
-            f"theta={feats.get('theta', float('nan')):.1f} deg",
-            f"v_y={feats.get('v_y', float('nan')):.2f} torso/s",
-            f"hip_h={feats.get('hip_height', float('nan')):.2f}",
-        ]
+        feat_line = f"t={feats.get('theta', float('nan')):.1f} v={feats.get('v_y', float('nan')):.2f} h={feats.get('hip_height', float('nan')):.2f}"
     else:
-        lines = ["(no detection yet)"]
-    for i, line in enumerate(lines):
-        cv2.putText(frame, line, (8, y0 + 20 * (i + 1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        feat_line = "(no detection yet)"
+    feat_text_w, feat_text_h = cv2.getTextSize("t=-180.0 v=-9.99 h=-9.99", cv2.FONT_HERSHEY_SIMPLEX, feat_font, 1)[0]
+    feat_h = feat_text_h + int(14 * scale)
+    feat_w = min(frame.shape[1], feat_text_w + int(12 * scale))
+    _translucent_rect(frame, (0, frame.shape[0] - feat_h), (feat_w, frame.shape[0]), alpha=0.55)
+    cv2.putText(frame, feat_line, (int(6 * scale), frame.shape[0] - int(feat_h * 0.3)), cv2.FONT_HERSHEY_SIMPLEX, feat_font, (255, 255, 255), 1)
 
-    fps_box_w = min(frame.shape[1], 100)  # 固定寬度,理由同上方標籤矩形(避免同一畫面緩衝殘影)
-    cv2.rectangle(frame, (frame.shape[1] - fps_box_w, frame.shape[0] - 24), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-    cv2.putText(frame, f"FPS {fps:.1f}", (frame.shape[1] - fps_box_w + 6, frame.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    fps_text_w, fps_text_h = cv2.getTextSize("FPS 999.9", cv2.FONT_HERSHEY_SIMPLEX, fps_font, 1)[0]
+    fps_h = fps_text_h + int(14 * scale)
+    fps_w = min(frame.shape[1], fps_text_w + int(12 * scale))
+    _translucent_rect(frame, (frame.shape[1] - fps_w, frame.shape[0] - fps_h), (frame.shape[1], frame.shape[0]), alpha=0.55)
+    cv2.putText(
+        frame,
+        f"FPS {fps:.1f}",
+        (frame.shape[1] - fps_w + int(6 * scale), frame.shape[0] - int(fps_h * 0.3)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        fps_font,
+        (255, 255, 255),
+        1,
+    )
     return frame
 
 
