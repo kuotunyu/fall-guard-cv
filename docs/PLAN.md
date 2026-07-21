@@ -49,6 +49,7 @@
 | D13 | 2026-07-21 | `data/urfd_meta.csv`（人工標註,1-2 小時心血,無法從程式碼重現）與 `data/splits.json`（評估協定,由前者衍生,審閱者最想看到的稽核依據）**例外進 git**,不受第 5 章「data/ 全 .gitignore」規則約束 | 原規則假設 data/ 下都是「可重下載/可重跑重現」的東西;人工標註是唯一例外,遺失即需重工 |
 | D14 | 2026-07-21 | ultralytics 8.4.102 的 `half=True` 參數已棄用（跑實際程式時印出 deprecation warning），推論/訓練一律改用 `quantize=16`（FP16；`quantize=32`/`None`＝FP32）。**全文所有 `half=True` 已改為 `quantize=16`** | 實測 `model.track(...)` 呼叫時的官方 deprecation 警告 + 讀 `ultralytics/cfg/default.yaml` 原始碼確認 `quantize` 取代 `half`/`int8`（2026-07-21） |
 | D15 | 2026-07-21 | **人工標註確認：40 段 ADL 只有 2 位受試者（P1、P2）出現，P3/P4/P5 只在 30 段 fall 中出現**（URFD 官方頁未說明此分佈，經使用者實際看片確認；官方頁亦未提供任何受試者對照資訊可佐證或反駁）。**連帶影響 LOSO 折的可用指標**：P1、P2 折的 test 集同時含 fall+adl（可算完整 sensitivity+specificity）；**P3/P4/P5 折的 test 集只有 6 段 fall、0 段 adl（只能算 sensitivity，無法算 specificity/FP，Phase 2 evaluate.py 與 README 評估章節須誠實註記此限制，不得把三折平均當完整指標呈現）**。標註工具亦發現並修正一個 bug：cv2 視窗失焦期間累積的按鍵會在恢復焦點瞬間暴衝連續觸發，已於 `annotate_urfd.py` 加入 400ms 按鍵沖刷（`flush_stale_keys`）防止此問題重演；ADL 40 段因此事件重新以 `--review --kind adl` 複查過一輪，複查後 P1/P2 呈現乾淨區塊分佈（非隨機跳動），採信此結果 | `scripts/make_splits.py` 實測輸出：LOSO P1 test=30(fall6+adl24)、P2 test=22(fall6+adl16)、P3/P4/P5 test 皆為 6(fall6+adl0)；`uv run pytest` 12 passed（含原本 skip 的 LOSO 測試） |
+| D16 | 2026-07-21 | **兩個影響評估正確性的 bug/校準發現，皆已修正**：(1) `fsm.py` 的 NaN 防呆寫得過寬——任一特徵缺失就整幀跳過，連「已經過多久」這種純時間判斷（FALLING 逾時、CONFIRMED 累積、ALERTED 冷卻）也一起被跳過，導致跌倒瞬間常見的短暫遮擋讓狀態機永久卡死，實測事件級 Sensitivity 恆為 0。已重構 `step()`：只有「需要當下特徵值」的判斷（觸發偵測、躺姿/恢復判定）才在缺失時跳過，純時間的轉移判斷永遠照常檢查。(2) **修完 bug 後仍發現 `falling_timeout_s`(文獻預設 1.0s)與 D11 的評估用 `confirm_seconds=2s` 對本資料集系統性過嚴**：30 段 fall 中 23 段的「已倒地」期間存在同時滿足三躺姿條件的瞬間，但常在觸發後 1.0–1.5s 才出現；即使放寬逾時窗成功進 ON_GROUND(25/30)，進入後到影片結束的剩餘時長全數 <2.0s(中位數 0.77s)，文獻預設 N=2s 下 25/25 都來不及累積滿。**修正**：`scripts/evaluate.py` 的折內調參範圍新增 `falling_timeout_s∈{1.0,1.5,2.0,2.5,3.0}s` 與 `confirm_seconds∈{0.3,0.5,0.8,1.0,1.5}s` 聯合搜尋(只用 train 影片),此舉**取代 D11 原訂「評估固定用 N=2s」的假設**——評估用 N 也需要折內調參，不是寫死的常數；部署預設 N=10s(給真實家用場景防誤報)不受影響，維持獨立。調參後 LOSO 事件級 Sensitivity：P1=1.00、P2=1.00、P3=0.83、P4=0.67、P5=0.50；Specificity(僅 P1/P2 可算)0.92/0.94 | 2026-07-21 用 fall-01 逐幀 trace 定位 NaN 防呆 bug；用全部 30 段 fall 影片實測「進 ON_GROUND 後剩餘時長」分佈(10/25/50/75/90 分位數 0.43/0.56/0.77/1.37/1.63s)佐證 confirm_seconds 系統性過嚴；`uv run python scripts/evaluate.py --model rule --protocol loso` 實測輸出見 `docs/results/rule_baseline.md` |
 
 ## 3. 系統架構
 
@@ -213,8 +214,8 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 - [x] `uv run python scripts/prepare_data.py` → `data/processed/*.npz` ×70；每檔含 `xyn (T,17,2)`、`conf (T,17)`、`bbox_xywh (T,4)`、`raw_label (T,)` + `label_present (T,)`（精確對齊，見 D12）、`fps`、`timestamps`；**實測 70/70 成功，耗時 287s，平均偵測率 90.0%（最低 fall-19 53.0%，跌倒瞬間遮擋，符合預期）**
 - [x] **使用者人工標註** `data/urfd_meta.csv`：70 段 × `subject_id`（兩輪自我一致性，不確定標 unknown）+ 40 段 ADL × `action_category ∈ {走動, 坐下, 蹲下/綁鞋帶, 撿東西/彎腰, 躺床, 其他}` → **完成，unknown 0 段；過程中發現並修正 cv2 視窗失焦按鍵暴衝 bug（見 D15），ADL 40 段以 `--review --kind adl` 複查一輪後採信；確認 ADL 只有 P1/P2 兩位受試者出現（D15，連帶影響 LOSO 折指標可用性，見 §7.2）**
 - [x] `data/splits.json`：LOSO（5 折，unknown 只進訓練）+ 影片級 GroupKFold（5 折，fall/ADL 分層），隨機種子固定 → **GroupKFold + LOSO 皆已就緒（scripts/make_splits.py）**
-- [x] `uv run pytest` 綠（npz schema、標籤對齊、`test_splits.py` fold 交集為空）→ **11 passed, 1 skipped(LOSO 待標註)**
-- [ ] `git tag phase-1`
+- [x] `uv run pytest` 綠（npz schema、標籤對齊、`test_splits.py` fold 交集為空）→ **12 passed（人工標註完成後 LOSO 測試轉綠）**
+- [x] `git tag phase-1`
 
 ### Phase 2 特徵工程 + 規則 baseline（約 1–1.5 天）
 
@@ -293,7 +294,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 | NORMAL→FALLING | `v_y > 2.0 torso/s`（≈1.0 m/s）或 `ω > 120°/s`，連續 ≥2 幀 | 跌倒垂直速度顯著高於日常動作（Wu 2000；Bourke 2007 系列） |
 | FALLING→ON_GROUND | 觸發後 1.0s 內同時：`θ > 60°` 且 `ρ > 1.0` 且 髖高 `< 0.5 torso` | 撞擊到靜止 <1s（Noury 2007）；θ 文獻常用 45–60°，取 60° 保 specificity |
 | FALLING→NORMAL | 1.0s 逾時未達躺姿（快速坐下/蹲下的出口） | — |
-| ON_GROUND→CONFIRMED | 躺姿持續 N 秒（允許 ≤0.5s 姿勢抖動）；評估 N=2 / 部署 N=10（D11） | — |
+| ON_GROUND→CONFIRMED | 躺姿持續 N 秒（允許 ≤0.5s 姿勢抖動）；評估 N 折內調參(grid 見 D16,實測結果遠低於 2s)/ 部署 N=10（D11 部署值不變,評估值由 D16 取代） | — |
 | 恢復→NORMAL | `θ < 40°` 且髖高 `> 0.7 torso` 持續 ≥2s（進 60°/出 40° 遲滯） | 狀態機防 chatter 標準做法 |
 | CONFIRMED→ALERTED | 截圖→VLM→Discord；冷卻 `ALERT_COOLDOWN_SECONDS=120`；冷卻結束仍倒地 ⇒ 升級再告警 | — |
 
