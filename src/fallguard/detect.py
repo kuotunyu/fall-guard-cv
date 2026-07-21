@@ -39,7 +39,7 @@ EVENTS_DIR = REPO_ROOT / "events"
 
 # BGR(cv2 色彩順序),對應 docs/PLAN.md §3 狀態顏色表(綠/黃/橙/紅/紅)
 STATE_COLORS = {
-    State.NORMAL: (0, 200, 0),
+    State.NORMAL: (0, 255, 0),
     State.FALLING: (0, 255, 255),
     State.ON_GROUND: (0, 140, 255),
     State.CONFIRMED: (0, 0, 255),
@@ -139,11 +139,18 @@ def print_cost_estimate() -> None:
     print()
 
 
-def _translucent_rect(frame: np.ndarray, pt1: tuple[int, int], pt2: tuple[int, int], alpha: float = 0.55) -> None:
+def _translucent_rect(frame: np.ndarray, pt1: tuple[int, int], pt2: tuple[int, int], alpha: float = 0.65) -> None:
     """半透明黑底(比純黑實心矩形不那麼搶畫面),原地疊在 frame 上。"""
     overlay = frame.copy()
     cv2.rectangle(overlay, pt1, pt2, (0, 0, 0), -1)
     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, dst=frame)
+
+
+def _put_text_outlined(frame: np.ndarray, text: str, org: tuple[int, int], font_scale: float, color: tuple[int, int, int], thickness: int) -> None:
+    """黑色描邊 + 前景色疊字——單純的實心色字在半透明底色或明亮背景上容易顯得褪色,
+    描邊能大幅提高對比,不管背景是什麼顏色都看得清楚。"""
+    cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
+    cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
 
 
 def overlay_frame(
@@ -167,38 +174,39 @@ def overlay_frame(
     # 字級各自獨立設下限(不是共用同一個 scale 再往下乘)——例如 0.42*scale 這種
     # 二次縮放,在 scale 已經是下限的窄畫面上會把字體壓到肉眼幾乎讀不出來。
     scale = max(0.5, min(1.4, frame.shape[0] / 480))
-    label_font = max(0.45, min(1.0, 0.7 * scale))
-    feat_font = max(0.35, min(0.6, 0.42 * scale))
+    label_font = max(0.55, min(1.15, 0.85 * scale))  # 左上狀態標籤是最關鍵資訊,字級加大
+    feat_font = max(0.4, min(0.7, 0.5 * scale))  # 特徵讀數移到右上,字級也順便加大一點
     fps_font = max(0.35, min(0.6, 0.5 * scale))
 
     # 底色寬度用「最長預期字樣」在該字級下量出來的實際寬度決定(不是量當下這幀的文字),
     # 字級只依畫面尺寸而定、跟目前顯示什麼內容無關,所以每幀量出來的寬度都一樣寬,
     # 不會有 D23 那種「換一幀文字變短、矩形跟著縮小蓋不到殘留字」的問題。
-    label_text_w, label_text_h = cv2.getTextSize("ON_GROUND 10.0/10.0s", cv2.FONT_HERSHEY_SIMPLEX, label_font, max(1, round(2 * scale)))[0]
+    label_thick = max(1, round(2 * scale))
+    label_text_w, label_text_h = cv2.getTextSize("ON_GROUND 10.0/10.0s", cv2.FONT_HERSHEY_SIMPLEX, label_font, label_thick)[0]
     label_h = label_text_h + int(18 * scale)
     label_w = min(frame.shape[1], label_text_w + int(16 * scale))
-    _translucent_rect(frame, (0, 0), (label_w, label_h), alpha=0.55)
-    cv2.putText(frame, label, (int(8 * scale), int(label_h * 0.72)), cv2.FONT_HERSHEY_SIMPLEX, label_font, color, max(1, round(2 * scale)))
+    _translucent_rect(frame, (0, 0), (label_w, label_h), alpha=0.65)
+    _put_text_outlined(frame, label, (int(8 * scale), int(label_h * 0.72)), label_font, color, label_thick)
 
+    # 特徵讀數移到右上角(原本左下的位置改留給畫面本身,避免遮住主體)。
     if feats is not None:
         feat_line = f"t={feats.get('theta', float('nan')):.1f} v={feats.get('v_y', float('nan')):.2f} h={feats.get('hip_height', float('nan')):.2f}"
     else:
         feat_line = "(no detection yet)"
     feat_text_w, feat_text_h = cv2.getTextSize("t=-180.0 v=-9.99 h=-9.99", cv2.FONT_HERSHEY_SIMPLEX, feat_font, 1)[0]
-    feat_h = feat_text_h + int(14 * scale)
-    feat_w = min(frame.shape[1], feat_text_w + int(12 * scale))
-    _translucent_rect(frame, (0, frame.shape[0] - feat_h), (feat_w, frame.shape[0]), alpha=0.55)
-    cv2.putText(frame, feat_line, (int(6 * scale), frame.shape[0] - int(feat_h * 0.3)), cv2.FONT_HERSHEY_SIMPLEX, feat_font, (255, 255, 255), 1)
+    feat_h = feat_text_h + int(16 * scale)
+    feat_w = min(frame.shape[1], feat_text_w + int(14 * scale))
+    _translucent_rect(frame, (frame.shape[1] - feat_w, 0), (frame.shape[1], feat_h), alpha=0.65)
+    _put_text_outlined(frame, feat_line, (frame.shape[1] - feat_w + int(7 * scale), int(feat_h * 0.68)), feat_font, (255, 255, 255), 1)
 
     fps_text_w, fps_text_h = cv2.getTextSize("FPS 999.9", cv2.FONT_HERSHEY_SIMPLEX, fps_font, 1)[0]
     fps_h = fps_text_h + int(14 * scale)
     fps_w = min(frame.shape[1], fps_text_w + int(12 * scale))
-    _translucent_rect(frame, (frame.shape[1] - fps_w, frame.shape[0] - fps_h), (frame.shape[1], frame.shape[0]), alpha=0.55)
-    cv2.putText(
+    _translucent_rect(frame, (frame.shape[1] - fps_w, frame.shape[0] - fps_h), (frame.shape[1], frame.shape[0]), alpha=0.65)
+    _put_text_outlined(
         frame,
         f"FPS {fps:.1f}",
         (frame.shape[1] - fps_w + int(6 * scale), frame.shape[0] - int(fps_h * 0.3)),
-        cv2.FONT_HERSHEY_SIMPLEX,
         fps_font,
         (255, 255, 255),
         1,
