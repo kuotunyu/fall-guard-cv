@@ -77,6 +77,7 @@ class FallStateMachine:
         self._recovery_start_t: float | None = None
         self._last_alert_t: float | None = None
         self._missing_history: deque[tuple[float, bool]] = deque()
+        self._last_t: float | None = None
 
     @property
     def confirmed_at(self) -> float | None:
@@ -84,6 +85,13 @@ class FallStateMachine:
             if tr.to_state == State.CONFIRMED:
                 return tr.t
         return None
+
+    @property
+    def lying_elapsed_s(self) -> float | None:
+        """目前這次躺姿已累積計時多久(供 UI 顯示 ON_GROUND 倒數用);未在累積時回傳 None。"""
+        if self._lying_accum_start_t is None or self._last_t is None:
+            return None
+        return self._last_t - self._lying_accum_start_t
 
     def _is_frozen(self, t: float, torso_missing: bool) -> bool:
         cfg = self.config
@@ -117,6 +125,7 @@ class FallStateMachine:
         """
         cfg = self.config
         t = frame["t"]
+        self._last_t = t
         torso_missing = bool(frame.get("torso_missing", False))
 
         if self._is_frozen(t, torso_missing):
