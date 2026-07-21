@@ -167,6 +167,16 @@ def test_missing_keypoint_long_gap_stays_nan():
     assert np.isnan(ff.theta[idx_in_gap]), "0.6s 長缺口不該被內插填補"
 
 
+def test_window_stat_vector_shape_and_known_value():
+    xyn, conf, bbox, ts = _make_sequence(150, 30.0, lambda t: _make_rigid_pose(0.2, theta_deg=0.0))
+    ff = feat.compute_features(xyn, conf, bbox, ts)
+    windows = feat.make_windows(ff, window_s=1.5, stride_s=0.2)
+    vec = feat.window_stat_vector(ff, windows[len(windows) // 2])
+    assert vec.shape == (len(feat.STAT_FEATURE_NAMES),)
+    theta_mean_idx = feat.STAT_FEATURE_NAMES.index("theta_mean")
+    assert vec[theta_mean_idx] == pytest.approx(0.0, abs=3.0)  # 全程站姿,平均角度應接近 0
+
+
 def test_make_windows_covers_expected_count():
     xyn, conf, bbox, ts = _make_sequence(150, 30.0, lambda t: _make_rigid_pose(0.2, theta_deg=0.0))
     ff = feat.compute_features(xyn, conf, bbox, ts)
