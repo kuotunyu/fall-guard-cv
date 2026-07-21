@@ -48,6 +48,7 @@
 | D12 | 2026-07-21 | **`urfall-cam0-adls.csv` 的 label 欄位不能直接當「是否跌倒」的正解**：40 段 ADL 中有 16 段含 label=1 的幀（實測 `adl-10/11/21-23/30-40`，每段 61–181 幀不等）。這是 URFD 官方共用的「姿態是否水平」深度幾何特徵，只反映身體姿勢、不反映事件語意——ADL 定義上不含跌倒事件，這些是「已躺床」片段被同一套幾何規則標成 1。**規則**：`kind=="fall"` 的 label=1 才是正例；`kind=="adl"` 一律是負例，不論 raw_label 為何。`prepare_data.py` 的 npz 保留 `raw_label` 原始值（可稽核）+ `kind` 欄位，由下游（Phase 2 features.py / evaluate.py）依此規則推導訓練用的 task label，不得直接拿 raw_label 訓練。這批「label=1 的 ADL 幀」正好是 §1.3 誤報分析要的「躺床」困難負樣本，之後可交叉比對使用者人工標的 `action_category`。同時更正 Phase 1 DoD 原寫的「標籤對齊容許 ±1 幀」：實測 `fall-01`（160 幀/160 列，csv frame_num 1-160）與 `adl-01`（150 幀，csv 覆蓋 frame_num 6-150 且有 1 個缺口）確認對齊公式為精確值 `csv frame_num - 1 = 影片幀索引(0-indexed)`，非模糊容忍；CSV 未覆蓋的幀在 npz 用 `label_present=False` 標記，不用容忍區間 | 2026-07-21 用 awk 直接統計 `data/raw/urfd/urfall-cam0-adls.csv` 各段 label=1 幀數,並用 cv2 讀 fall-01/adl-01 實際幀數與 csv frame_num 範圍比對驗證索引公式 |
 | D13 | 2026-07-21 | `data/urfd_meta.csv`（人工標註,1-2 小時心血,無法從程式碼重現）與 `data/splits.json`（評估協定,由前者衍生,審閱者最想看到的稽核依據）**例外進 git**,不受第 5 章「data/ 全 .gitignore」規則約束 | 原規則假設 data/ 下都是「可重下載/可重跑重現」的東西;人工標註是唯一例外,遺失即需重工 |
 | D14 | 2026-07-21 | ultralytics 8.4.102 的 `half=True` 參數已棄用（跑實際程式時印出 deprecation warning），推論/訓練一律改用 `quantize=16`（FP16；`quantize=32`/`None`＝FP32）。**全文所有 `half=True` 已改為 `quantize=16`** | 實測 `model.track(...)` 呼叫時的官方 deprecation 警告 + 讀 `ultralytics/cfg/default.yaml` 原始碼確認 `quantize` 取代 `half`/`int8`（2026-07-21） |
+| D15 | 2026-07-21 | **人工標註確認：40 段 ADL 只有 2 位受試者（P1、P2）出現，P3/P4/P5 只在 30 段 fall 中出現**（URFD 官方頁未說明此分佈，經使用者實際看片確認；官方頁亦未提供任何受試者對照資訊可佐證或反駁）。**連帶影響 LOSO 折的可用指標**：P1、P2 折的 test 集同時含 fall+adl（可算完整 sensitivity+specificity）；**P3/P4/P5 折的 test 集只有 6 段 fall、0 段 adl（只能算 sensitivity，無法算 specificity/FP，Phase 2 evaluate.py 與 README 評估章節須誠實註記此限制，不得把三折平均當完整指標呈現）**。標註工具亦發現並修正一個 bug：cv2 視窗失焦期間累積的按鍵會在恢復焦點瞬間暴衝連續觸發，已於 `annotate_urfd.py` 加入 400ms 按鍵沖刷（`flush_stale_keys`）防止此問題重演；ADL 40 段因此事件重新以 `--review --kind adl` 複查過一輪，複查後 P1/P2 呈現乾淨區塊分佈（非隨機跳動），採信此結果 | `scripts/make_splits.py` 實測輸出：LOSO P1 test=30(fall6+adl24)、P2 test=22(fall6+adl16)、P3/P4/P5 test 皆為 6(fall6+adl0)；`uv run pytest` 12 passed（含原本 skip 的 LOSO 測試） |
 
 ## 3. 系統架構
 
@@ -210,8 +211,8 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 - [x] `uv run python scripts/download_data.py` → `data/raw/urfd/` 下 70 支 mp4 + 2 份 CSV；斷點續傳；結束印檔數/總大小 summary；`--fallback le2i` 走 Kaggle API（token 在 `~/.kaggle/kaggle.json`）
 - [x] 檢查 ADL 標籤分佈：確認 `urfall-cam0-adls.csv` 中躺床動作的 label 語意（是否標 1=lying）——結論記入 Decision Log（影響第 7.2 節視窗標籤規約）→ **D12：16/40 段含 label=1(躺姿幾何特徵,非跌倒事件),已定案 kind 覆寫規則**
 - [x] `uv run python scripts/prepare_data.py` → `data/processed/*.npz` ×70；每檔含 `xyn (T,17,2)`、`conf (T,17)`、`bbox_xywh (T,4)`、`raw_label (T,)` + `label_present (T,)`（精確對齊，見 D12）、`fps`、`timestamps`；**實測 70/70 成功，耗時 287s，平均偵測率 90.0%（最低 fall-19 53.0%，跌倒瞬間遮擋，符合預期）**
-- [ ] **使用者人工標註** `data/urfd_meta.csv`：70 段 × `subject_id`（兩輪自我一致性，不確定標 unknown）+ 40 段 ADL × `action_category ∈ {走動, 坐下, 蹲下/綁鞋帶, 撿東西/彎腰, 躺床, 其他}`（約 1–2 小時；URFD 缺的動作類別在 README 註明覆蓋缺口，不硬湊）
-- [x] `data/splits.json`：LOSO（5 折，unknown 只進訓練）+ 影片級 GroupKFold（5 折，fall/ADL 分層），隨機種子固定 → **GroupKFold 已就緒（scripts/make_splits.py）；LOSO 待人工標註（明日）完成後重跑同一指令自動補上**
+- [x] **使用者人工標註** `data/urfd_meta.csv`：70 段 × `subject_id`（兩輪自我一致性，不確定標 unknown）+ 40 段 ADL × `action_category ∈ {走動, 坐下, 蹲下/綁鞋帶, 撿東西/彎腰, 躺床, 其他}` → **完成，unknown 0 段；過程中發現並修正 cv2 視窗失焦按鍵暴衝 bug（見 D15），ADL 40 段以 `--review --kind adl` 複查一輪後採信；確認 ADL 只有 P1/P2 兩位受試者出現（D15，連帶影響 LOSO 折指標可用性，見 §7.2）**
+- [x] `data/splits.json`：LOSO（5 折，unknown 只進訓練）+ 影片級 GroupKFold（5 折，fall/ADL 分層），隨機種子固定 → **GroupKFold + LOSO 皆已就緒（scripts/make_splits.py）**
 - [x] `uv run pytest` 綠（npz schema、標籤對齊、`test_splits.py` fold 交集為空）→ **11 passed, 1 skipped(LOSO 待標註)**
 - [ ] `git tag phase-1`
 
@@ -258,6 +259,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 - **URFD frame label 規約**：`-1` 未倒 / `0` 跌倒過渡 / `1` 已倒地（此為 raw CSV 值）。**kind 覆寫規則（D12,已由 Phase 1 實測確認）**：只有 `kind=="fall"` 的影片,其 label 才代表真正的跌倒事件；`kind=="adl"` 影片一律視為負例(非跌倒),即使該幀 raw_label==1(常見於 ADL 中的躺床片段,是姿態幾何特徵而非事件標籤)。視窗標籤（僅在 fall 影片內計算正例）：含 ≥1 幀 label=1 或涵蓋 0→1 轉移 ⇒ 正例；全 -1 ⇒ 負例；只含 0 ⇒ 剔除（過渡幀語意不明確，文獻慣例）。ADL 影片的所有視窗一律負例,其中 raw_label==1 的視窗(躺床)是誤報分析(§1.3)的關鍵困難負樣本。事件級 ground-truth 區間 = [第一個 0 幀, 躺地段結束]，過渡幀在此層完整使用,僅適用於 fall 影片。
 - **視窗級**：precision / recall / F1 / **PR-AUC**（類別不平衡下必附）+ 混淆矩陣。
 - **事件級**：Event Sensitivity（30 段 fall 中狀態機到達 CONFIRMED 的比例）、Event Specificity（40 段 ADL 誤觸段數）、**false alarms per hour**（分母 = ADL 總時長；URFD 時數短需註明信賴區間寬，用 Le2i 標註子集補足（~191 段：143 fall / 48 ADL；Phase 1 下載後以實際檔數校正，記入 Decision Log））。
+  - **LOSO 折的指標可用性不對稱（D15）**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 折的 test 集同時含 fall+adl，可算完整 sensitivity+specificity；**P3/P4/P5 折的 test 集只有 fall（0 段 adl），只能算 sensitivity，不能算 specificity/FP**。report 時三折不可直接平均掉這個差異——P1/P2 折標「完整指標」，P3/P4/P5 折標「僅 sensitivity（該折無 ADL 樣本）」，README 誠實揭露此限制。
 - **偵測延遲分開報**：(a) 演算法延遲 = GT 撞擊幀 → 進入 ON_GROUND；(b) 告警延遲 = 撞擊 → CONFIRMED（含刻意設計的 N 秒）。混報是常見方法論錯誤。
 - **分層報告**：URFD 跌倒 15 段站姿 / 15 段坐姿——坐姿跌倒質心下降幅度與速度天然較小，是規則 baseline 的預期弱點，sensitivity 必須分兩列報。
 - 與 Kwolek & Kepski 2014 的 accuracy/sensitivity/specificity 同表對照（README）。
