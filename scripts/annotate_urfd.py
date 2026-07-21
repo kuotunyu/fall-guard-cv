@@ -4,9 +4,10 @@
 URFD 官方未提供 subject↔sequence 對照表,故人工看預覽片標註。
 
 用法：
-    uv run python scripts/annotate_urfd.py            # 標註模式:只跳過已標註的影片(可分次做完)
-    uv run python scripts/annotate_urfd.py --review    # 複查模式(第二輪自我一致性檢查):重新過一遍全部 70 段,逐一確認/修改
-    uv run python scripts/annotate_urfd.py --restart    # 忽略既有標註,從頭開始(較少用)
+    uv run python scripts/annotate_urfd.py                     # 標註模式:只跳過已標註的影片(可分次做完)
+    uv run python scripts/annotate_urfd.py --review             # 複查模式(第二輪自我一致性檢查):重新過一遍全部 70 段,逐一確認/修改
+    uv run python scripts/annotate_urfd.py --review --kind adl  # 只複查 40 段 ADL(例如懷疑這批標籤不可靠,但 fall 那批沒問題不用重看)
+    uv run python scripts/annotate_urfd.py --restart             # 忽略既有標註,從頭開始(較少用)
 
 視窗內操作(畫面下方會顯示同一份說明)：
     1-5   標為受試者 P1-P5(URFD 官方稱共 5 人;不確定時可用 u)
@@ -268,6 +269,22 @@ def play_video(path: Path) -> None:
     cap.release()
 
 
+def flush_stale_keys(settle_ms: int = 400) -> None:
+    """丟棄視窗失焦/切換期間 OS 排隊累積的按鍵事件。
+
+    cv2 視窗失焦時按的鍵會被 Windows 訊息佇列記住;一旦視窗恢復焦點,
+    下一次 waitKey(0) 會立刻吃到這些「舊」按鍵,造成畫面都還沒讓人看清楚
+    就被連續觸發、暴衝標完好幾段的問題。做法:先花 settle_ms 毫秒持續
+    poll(waitKey(30)),把這段期間收到的任何按鍵一律丟棄不處理;
+    使用者要做出真正的判斷,必須在這段「安定期」結束後才按鍵才算數。
+    """
+    import time
+
+    deadline = time.monotonic() + settle_ms / 1000
+    while time.monotonic() < deadline:
+        cv2.waitKey(30)  # 有按鍵就丟掉,沒有就繼續等到安定期結束
+
+
 def capture_note(prompt: str) -> str:
     """簡易文字輸入(僅英數字/基本符號,cv2 視窗無法處理中文輸入法)。"""
     buf = ""
@@ -295,6 +312,7 @@ def ask_action_category(video_id: str) -> str | None:
     lines.append(("按 1-6 選動作類別 · s 跳過 · b 取消回上一步", (180, 180, 180)))
     block = text_block(CANVAS_W, [(f"{video_id}:這段 ADL 主要動作是?", (255, 220, 120))] + lines, size=18, bg=(20, 40, 20))
     cv2.imshow(WINDOW_NAME, block)
+    flush_stale_keys()
     while True:
         key = cv2.waitKey(0) & 0xFF
         if ord("1") <= key <= ord("6"):
@@ -305,7 +323,7 @@ def ask_action_category(video_id: str) -> str | None:
             return None
 
 
-def run(mode: str) -> None:
+def run(mode: str, kind_filter: str | None = None) -> None:
     videos = list_videos()
     store = MetaStore(videos)
     lying_hint = load_adl_lying_hint()
@@ -314,6 +332,9 @@ def run(mode: str) -> None:
         queue = list(store.order)
     else:
         queue = [v for v in store.order if not store.is_labeled(v)]
+
+    if kind_filter:
+        queue = [v for v in queue if store.kind_of[v] == kind_filter]
 
     if not queue:
         print("所有影片都已標註。若要重新逐一確認(第二輪自我一致性檢查),請加 --review。")
@@ -351,6 +372,8 @@ def run(mode: str) -> None:
         screen = compose_screen(montage, ref_strip, header, footer)
         cv2.imshow(WINDOW_NAME, screen)
         cv2.setWindowTitle(WINDOW_NAME, f"{WINDOW_NAME} - {vid} ({i+1}/{len(queue)})")
+
+        flush_stale_keys()  # 視窗失焦期間累積的按鍵在此丟棄,避免恢復焦點瞬間暴衝連續觸發
 
         key = cv2.waitKey(0) & 0xFF
 
@@ -411,6 +434,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--review", action="store_true", help="複查模式:重新逐一確認全部影片(第二輪自我一致性檢查)")
     parser.add_argument("--restart", action="store_true", help="忽略既有 data/urfd_meta.csv,從頭標註")
+    parser.add_argument("--kind", choices=["fall", "adl"], default=None, help="只處理 fall 或 adl 其中一種(常搭配 --review 用,只重確認某一批)")
     args = parser.parse_args()
 
     if args.restart and META_PATH.exists():
@@ -420,7 +444,7 @@ def main() -> None:
         print(f"找不到 {URFD_DIR},請先執行 scripts/download_data.py")
         sys.exit(1)
 
-    run("review" if args.review else "label")
+    run("review" if args.review else "label", kind_filter=args.kind)
 
 
 if __name__ == "__main__":
