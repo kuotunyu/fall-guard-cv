@@ -15,6 +15,11 @@ models/
 events/
 *.pt
 
+# 標註過程的暫時輔助圖(受試者臉部特寫比對用,非 Phase 4 正式交付物如 demo.gif)
+docs/assets/subject_sheet.png
+docs/assets/subject_compare.png
+docs/assets/adl_sample_scan.png
+
 # Python
 __pycache__/
 *.pyc
