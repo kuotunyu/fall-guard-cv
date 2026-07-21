@@ -219,11 +219,11 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 2 特徵工程 + 規則 baseline（約 1–1.5 天）
 
-- [ ] `src/fallguard/features.py`：第 7.3 節特徵全實作；單元測試用合成關鍵點驗證已知值（例：水平軀幹 → θ≈90°、勻速下降序列 → v_y 已知值）
-- [ ] `src/fallguard/fsm.py`：第 8.1 節狀態機，純函式類（輸入特徵幀 → 輸出狀態 + 轉移日誌）；pytest 合成序列：快速下墜+躺平 → CONFIRMED；緩慢躺下 → 不告警；蹲下 → 不告警
-- [ ] `uv run python scripts/evaluate.py --model rule --protocol loso` → 視窗級 + 事件級指標（第 7.2 節），結果落 `docs/results/rule_baseline.md`；**閾值只准用各折訓練群組調**（報「文獻預設」與「調參後」兩組）
-- [ ] 誤報分析 → `docs/results/error_analysis.md`：動作類別 × FP 表 + ≥3 個誤判片段的特徵曲線圖（跌倒 vs 躺床 vs 蹲下三聯圖存 `docs/assets/`）
-- [ ] README 回填：mermaid 架構圖 + 規則 baseline 初步數字；`git tag phase-2`
+- [x] `src/fallguard/features.py`：第 7.3 節特徵全實作；單元測試用合成關鍵點驗證已知值（例：水平軀幹 → θ≈90°、勻速下降序列 → v_y 已知值）→ **7 項測試全過**
+- [x] `src/fallguard/fsm.py`：第 8.1 節狀態機，純函式類（輸入特徵幀 → 輸出狀態 + 轉移日誌）；pytest 合成序列：快速下墜+躺平 → CONFIRMED；緩慢躺下 → 不告警；蹲下 → 不告警 → **6 項測試全過；過程中發現並修正 NaN 防呆阻擋純時間轉移的 bug（D16）**
+- [x] `uv run python scripts/evaluate.py --model rule --protocol loso` → 視窗級 + 事件級指標（第 7.2 節），結果落 `docs/results/rule_baseline.md`；**閾值只准用各折訓練群組調**（報「文獻預設」與「調參後」兩組）→ **完成；調參範圍額外納入 falling_timeout_s 與 confirm_seconds（D16，取代 D11 固定 N=2s 的假設）**
+- [x] 誤報分析 → `docs/results/error_analysis.md`：動作類別 × FP 表 + ≥3 個誤判片段的特徵曲線圖（跌倒 vs 躺床 vs 蹲下三聯圖存 `docs/assets/`）→ **完成，40 段 ADL 中 3 段誤報(7.5%)，跟 LOSO specificity 數字互相印證**
+- [x] README 回填：mermaid 架構圖 + 規則 baseline 初步數字；`git tag phase-2`
 
 ### Phase 3 Colab 訓練 + 權重回程（約 1–2 天；3b 選做）
 
