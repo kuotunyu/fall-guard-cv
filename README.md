@@ -1,5 +1,6 @@
 # fall-guard-cv:居家即時跌倒偵測與家人通報
 
+[![tests](https://github.com/kuotunyu/fall-guard-cv/actions/workflows/test.yml/badge.svg)](https://github.com/kuotunyu/fall-guard-cv/actions/workflows/test.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
