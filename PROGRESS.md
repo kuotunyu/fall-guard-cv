@@ -9,10 +9,10 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-21
-**現在做到哪**：**Phase 4 功能面完成**：`detect.py`(三執行緒即時偵測)/`pose.py`/`vlm.py`/`notify.py` 全部寫完並實測跑通完整事件鏈(CONFIRMED→截圖→VLM 真實呼叫成功→Discord 送出嘗試)；`--benchmark` 實測 42.8 FPS(RTX 4090,超過 30 FPS 門檻)；`docs/assets/demo.gif` 已錄製並嵌入 README；README 全章節填完(動機段為草稿,待使用者過目修改)；`uv run pytest -q` 43 passed；`check_public_text.py` 全綠。**尚差**：(1) webcam(`--source 0`)未經實機測試(本機開發環境無實體攝影機)；(2) Discord 真實送達未驗證(webhook 未設定，只驗證到「正確偵測未設定並優雅失敗」)；(3) README 動機段待使用者審閱修改(PLAN.md 第 14 章收尾清單要求)；(4) `git tag phase-4`(使用者自行執行)。
-**下一步（開機第一件事）**：使用者 commit 本輪異動並打 `git tag phase-4`；接著建立 Discord Webhook 填入 `.env` 的 `DISCORD_WEBHOOK_URL`，用實體攝影機跑一次 `uv run python -m fallguard.detect --source 0` 驗證 webcam 路徑與真實 Discord 送達；審閱並修改 README「為什麼做這個專案」草稿。四項都完成後專案即可視為正式發布(PLAN.md 第 14 章收尾清單)。
-**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2）。
-**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`，驗證真實通報送達。(2) 用實體攝影機驗證 `--source 0` 路徑。(3) 審閱/修改 README 動機段草稿。(4) **本輪的 git commit + `git tag phase-4` 由使用者自行執行**。
+**現在做到哪**：**Phase 4 全部完成，repo 已公開上線，並跑過一次 37-agent 完整度稽核（D25）**：`detect.py`(三執行緒即時偵測)/`pose.py`/`vlm.py`/`notify.py` 全部寫完；`--benchmark` 實測 42.8 FPS(RTX 4090)；使用者已用實體攝影機 + 真人實際倒地完整測試 webcam 路徑，Discord 頻道實際收到兩則通報(D24)。**完整度稽核**：掃描 PLAN.md/PROGRESS.md/README.md/即時 repo 狀態找出 33 個候選缺口，逐一查證後只有 10 個(其中 5 個是同一件事的不同措辭)是真缺口，18 個是「文件記帳落後於實際進度」的假警報(PLAN.md 第 14 章一堆 checkbox 沒打勾但事情早就做完，已補勾)。真缺口修掉兩個：README 補上 badges，`evaluate.py` 補上混淆矩陣顯示(算了但從沒印出來過)。**唯一真正卡住「完全發布」的項目**：README「為什麼做這個專案」動機段仍是 AI 草稿，待使用者本人審閱修改。家人邀請 Discord 一事，使用者已明確表示這個專案定位是作品集展示、暫不追加通報管道，此決策已定案不再變動。
+**下一步（開機第一件事）**：commit 本輪異動(evaluate.py 混淆矩陣 + README badges/混淆矩陣表 + PLAN/PROGRESS 更新)並推上 GitHub；審閱並修改 README 動機段（README.md 第 9-18 行）。後者做完，PLAN.md 第 14 章收尾清單就全數完成。
+**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2，D25 稽核確認此限制屬誠實揭露、非疏漏，不阻擋發布）。
+**待使用者人工處理**：審閱/修改 README 動機段草稿並 commit + push。
 **已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。ultralytics `half=True` 已棄用，一律用 `quantize=16`（D14）。ultralytics 下載的 `.pt` 權重會先落在 CWD，`prepare_data.py` 已自動搬進 `models/pretrained/`（已 gitignore）。**cv2 GUI 視窗失焦時按鍵會被 OS 排隊，恢復焦點瞬間可能暴衝連續觸發**——`annotate_urfd.py` 已加 400ms 按鍵沖刷防護。**LOSO 的 P3/P4/P5 折沒有 ADL 測試樣本**（D15，evaluate.py/README 已處理成 N/A 不硬平均）。**任何狀態機/計時邏輯寫 NaN 防呆時，純時間判斷(逾時/確認/冷卻)必須獨立於特徵值是否缺失都照常執行**（D16 血淚教訓）。**評估用的跌倒確認秒數不是寫死 2s，是折內調參出來的**（D16 取代 D11 假設）。matplotlib 中文圖表記得設定 `font.family` 為系統中文字型（msjh.ttc）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度的短影片檔會失效**——capture thread 配速沒開時會在 main thread 準備好之前就把整支片瞬間讀完丟棄，量吞吐量務必用不透過佇列的獨立單執行緒迴圈(`detect.py --benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串也可能是 content block 的 list，一律用 `.text` 屬性取值，不要 `str(response.content)`**（D22 血淚教訓，會把整包 dict/list 結構原樣印進通報文字）。**同一個畫面緩衝區重複疊字時，底色矩形必須固定寬度，不能依當下文字動態縮小**——不然文字變短的那一幀會蓋不住前一幀較寬的殘留文字(demo 錄製時發現，detect.py `overlay_frame` 已修正)。
 
 ## 📜 Phase 日誌（append-only）
@@ -119,5 +119,33 @@
   - `uv run pytest -q` → `43 passed`
   - `uv run python scripts/check_public_text.py` → 全綠
 - 決策連結：PLAN.md D20（detect.py 範圍決策：不建 classifier.py）、D21（1-slot 佇列與 --benchmark 設計）、D22（VLM `.text` bug 修正）、D23（demo.gif 取捨）。
-- 尚未完成：webcam(`--source 0`)實機測試（本機開發環境無實體攝影機）；Discord 真實送達驗證（待使用者建立 webhook）；README 動機段待使用者審閱修改；`git tag phase-4`。
 - **本輪 git commit/tag 由使用者自行執行**。
+
+### Phase 4 收尾：webcam 實機驗證 + repo 公開上線（2026-07-21 完成，tag: phase-4）
+
+- 使用者自行完成三次 commit + `git tag phase-4`。
+- **D24：webcam + Discord 真實送達驗證**——使用者用實體攝影機執行 `uv run python -m fallguard.detect --source 0`，在鏡頭前真人實際倒地（非影片檔模擬）。畫面疊加、狀態機判定、FPS 讀數皆正常；VLM 用真實 `GEMINI_MODEL` 產出兩次現場描述（姿態/環境/意識狀態/嚴重程度 1-5 分，內容合理可判讀）；Discord 頻道實際收到兩則通報。至此 Phase 4 最後兩項「只能靠程式碼審查/mock 驗證」的項目（webcam 路徑、Discord 真實送達）都補上真實環境證據。
+- **repo 建立與公開上線**：協助使用者釐清本機 `gh` CLI 誤登入 `tun0000`（測試帳號）而非 `kuotunyu`（求職用帳號）的問題，且 git 的 GitHub credential helper 委派給 `gh auth git-credential`，兩者需一致才能正確推送。使用者改用 `gh auth login` + `gh auth switch` 切換到 kuotunyu 後，由 AI 執行 `gh repo create fall-guard-cv --public`（在確認帳號正確後），使用者自行完成 `git push`。上線後逐項核對：Contributors 僅 kuotunyu 一人（無 tun0000/Claude）、phase-0~phase-4 共 5 個 tag 都在、`data/`/`models/` 沒有大型檔案或誤上傳的原始資料、`.env` 未被 commit、兩張 mermaid 圖用瀏覽器工具（非 WebFetch，因其不執行 JS 會誤判為「Loading」）確認實際渲染正常、demo.gif 直接打 raw 檔案 URL 確認 HTTP 200 且大小/型別正確。
+- 過程中修正的環境問題：使用者一開始把 `DISCORD_WEBHOOK_URL` 貼到了外層 `4_fall-guard-cv/.env`（巢狀資料夾容易混淆的兩份 .env 之一），而非專案實際讀取的 `4_fall-guard-cv/fall-guard-cv/.env`；AI 用不印出網址內容的方式把值搬到正確位置並清空外層那份。
+- 驗證證據（2026-07-21 實測）：
+  - 使用者實測回報：「我故意跌倒在地上，有收到 discord 通知」，附上兩則實際收到的完整通報文字
+  - `curl -sI https://raw.githubusercontent.com/kuotunyu/fall-guard-cv/main/docs/assets/demo.gif` → `200 OK`，`Content-Length: 2551406`，`Content-Type: image/gif`
+  - 瀏覽器 `read_page` 確認兩處 mermaid 圖渲染為 `region "mermaid rendered output container"`（非原始程式碼區塊）
+- 決策連結：PLAN.md D24（webcam/Discord 真實環境驗證）。
+- commit 範圍：`70d6685..d43f7a9`（三個 Phase 4 commit + docs 收尾）。
+- **`git tag phase-4` 已由使用者完成；repo 已推送至 <https://github.com/kuotunyu/fall-guard-cv>（public）**。
+
+### 收尾：37-agent 完整度稽核 + 補漏（2026-07-21）
+
+- 使用者要求「看看還有哪邊沒做」，用 Workflow 跑一次完整度稽核（非臨時肉眼檢查）：4 個平行掃描 agent 分別讀 PLAN.md 全文（Phase 0-4 DoD + 第 14 章收尾清單）、PROGRESS.md 快速回憶區與 Phase 日誌、README.md 對照 PLAN §10 應含章節、即時 repo 狀態（`git status`/`pytest`/`check_public_text.py`/TODO 掃描/`.env` 設定狀態），找出 33 個候選缺口；再用 33 個獨立 verify agent 逐一重新對照當下 repo 實際內容查證（不信任掃描 agent 的引言，直接讀當下檔案/跑當下指令）。
+- 結果：**10 個真缺口**（其中 5 個是同一件事在不同檔案的不同措辭，實際是 2 個真正的新發現 + 3 個既知項目的重複提及）、**18 個「文件記帳落後於實際進度」假警報**（PLAN.md 第 14 章一堆 checkbox 因為單純忘記勾選而顯示未完成，實際工作早就做完並有證據，例如 mermaid 渲染/demo.gif/MIT 授權/公開文案掃描/URFD 引用/HF 連結/pytest 全綠/PROGRESS 發布狀態）、**5 個純誤判**（例如 GRU 選做被使用者婉拒不算缺口、`events/` 測試截圖已正確 gitignore 不算問題）。
+- **兩個真正被漏掉的項目已修正**：
+  1. README 標題下缺 badges（Python 3.11 / uv / MIT，PLAN §10 item 1 要求）→ 已補上 shields.io 徽章。
+  2. `scripts/evaluate.py` 的 `window_level_metrics()` 一直都有計算混淆矩陣（`confusion_matrix(...).tolist()`），但從沒有任何報告實際顯示過（只用衍生出來的 P/R/F1 呈現）→ `write_report()` 新增「混淆矩陣（視窗級，折內調參後）」章節（5 折逐一 + 加總），README 評估結果新增對應加總表（TN=1207/FP=46/FN=29/TP=115）。
+- **「家人沒有 Discord」的討論**：使用者主動提出，AI 研究後發現 LINE Notify 已於 2025-03-31 停止服務（替代方案 LINE Messaging API 需官方帳號、超過免費額度要付費，設定複雜度不亞於 Discord），提供四個選項讓使用者決定；使用者選擇「維持現狀，反正這個專案只是放在 GitHub 上展示的」——明確定案，不再是待辦事項。
+- 驗證證據（2026-07-21 實測）：
+  - `uv run python scripts/evaluate.py --model rule --protocol loso` → 重新產生 `docs/results/rule_baseline.md`，15 項 F1 數字與修正前完全一致（0.778/0.764/0.800/0.700/0.636），確認新增混淆矩陣邏輯未影響既有評估結果
+  - `uv run pytest -q` → `43 passed`
+  - `uv run python scripts/check_public_text.py` → 全綠
+- 決策連結：PLAN.md D25（稽核方法與兩個真缺口修正）。
+- **本輪 git commit 由使用者自行執行**。
