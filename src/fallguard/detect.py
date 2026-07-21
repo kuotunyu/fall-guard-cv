@@ -46,7 +46,26 @@ STATE_COLORS = {
     State.ALERTED: (0, 0, 255),
 }
 
-FEATURE_BUFFER_S = 6.0  # compute_features 重採樣/滑動中位數用的回顧視窗(§7.3 最長用到 3s,留一倍餘裕)
+FEATURE_BUFFER_S = 6.0  # compute_features 重採樣/滑動中位数用的回顧視窗(§7.3 最長用到 3s,留一倍餘裕)
+
+
+class RollingFps:
+    """畫面上顯示的 FPS 用「近期」滑動視窗算,不是「累積自程式啟動」的平均——後者會被
+    GPU 第一次推論的暖機成本(CUDA kernel 編譯/cudnn 演算法搜尋,一次性、跟穩態吞吐量
+    無關)拖著,要等很久才爬升到真實穩態值,使用者一開始看到的數字沒有代表性。近期滑動
+    視窗只反映「現在」跑多快,啟動後幾幀內就能穩定顯示正確數值。"""
+
+    def __init__(self, window_s: float = 1.5):
+        self.window_s = window_s
+        self._timestamps: deque[float] = deque()
+
+    def tick(self, now: float) -> float:
+        self._timestamps.append(now)
+        while len(self._timestamps) > 1 and now - self._timestamps[0] > self.window_s:
+            self._timestamps.popleft()
+        if len(self._timestamps) < 2:
+            return 0.0
+        return (len(self._timestamps) - 1) / (self._timestamps[-1] - self._timestamps[0])
 
 
 class LatestFrameQueue:
@@ -333,6 +352,7 @@ def main() -> None:
     t_start = time.monotonic()
     n_frames = 0
     last_seen_id = 0
+    fps_tracker = RollingFps()
 
     print("偵測中...(視窗按 q 結束;headless 模式 Ctrl+C 結束)")
     try:
@@ -379,8 +399,7 @@ def main() -> None:
                 alert_pool.submit(run_alert, confirm_path, new_alert.escalation)
 
             n_frames += 1
-            elapsed = time.monotonic() - t_start
-            fps = n_frames / elapsed if elapsed > 0 else 0.0
+            fps = fps_tracker.tick(time.monotonic())
 
             if dump_rows is not None and feats_dict is not None:
                 dump_rows.append({"t": t, "state": new_state.value, **{k: v for k, v in feats_dict.items() if k != "t"}})
