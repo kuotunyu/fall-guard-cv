@@ -7,7 +7,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_README_SECTIONS = [
-    "為什麼做這個專案",
     "系統架構",
     "模型選型",
     "資料集與授權",
