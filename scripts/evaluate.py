@@ -22,7 +22,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score, confusion_matrix, f1_score, precision_score, recall_score
 
 from fallguard.config import REPO_ROOT
-from fallguard.features import FrameFeatures, compute_features, make_windows
+from fallguard.features import FrameFeatures, compute_features, make_windows, window_stat_vector
 from fallguard.fsm import FallStateMachine, FSMConfig, State
 from fallguard.rules import RuleThresholds, window_arrays, window_score
 
@@ -30,6 +30,7 @@ PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 META_PATH = REPO_ROOT / "data" / "urfd_meta.csv"
 SPLITS_PATH = REPO_ROOT / "data" / "splits.json"
 RESULTS_DIR = REPO_ROOT / "docs" / "results"
+XGB_MODELS_DIR = REPO_ROOT / "models" / "xgboost"
 
 EVAL_CONFIRM_SECONDS = 2.0  # 評估用 N(D11);部署預設 N=10s 由 config.py 的 FALL_CONFIRM_SECONDS 另行套用
 
@@ -104,11 +105,12 @@ def window_ground_truth(video: VideoData, start_t: float, end_t: float) -> int |
 
 
 class WindowSample:
-    __slots__ = ("video_id", "arrays", "gt")
+    __slots__ = ("video_id", "arrays", "stat_vec", "gt")
 
-    def __init__(self, video_id, arrays, gt):
+    def __init__(self, video_id, arrays, stat_vec, gt):
         self.video_id = video_id
         self.arrays = arrays
+        self.stat_vec = stat_vec
         self.gt = gt
 
 
@@ -123,7 +125,8 @@ def build_window_samples(video_ids: list[str], videos: dict[str, VideoData]) -> 
             arrays = window_arrays(video.features, w)
             if any(np.all(np.isnan(v)) for v in arrays.values()):
                 continue
-            samples.append(WindowSample(vid, arrays, gt))
+            stat_vec = window_stat_vector(video.features, w)
+            samples.append(WindowSample(vid, arrays, stat_vec, gt))
     return samples
 
 
@@ -388,6 +391,100 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     return out_path
 
 
+# ---------- XGBoost(Phase 3;讀 Colab 訓練回來的權重,本機重現評估) ----------
+
+
+def load_xgb_fold_models() -> dict[str, "xgb.Booster"]:
+    import xgboost as xgb
+
+    if not XGB_MODELS_DIR.exists():
+        return {}
+    models = {}
+    for path in sorted(XGB_MODELS_DIR.glob("xgb_fold_*.json")):
+        subject = path.stem.replace("xgb_fold_", "")
+        booster = xgb.Booster()
+        booster.load_model(str(path))
+        models[subject] = booster
+    return models
+
+
+def xgb_window_metrics(samples: list[WindowSample], booster) -> dict:
+    if not samples:
+        return {"n": 0}
+    import xgboost as xgb
+
+    X = np.stack([s.stat_vec for s in samples])
+    y_true = np.array([s.gt for s in samples])
+    scores = booster.predict(xgb.DMatrix(X))
+    y_pred = (scores >= 0.5).astype(int)
+
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    pr_auc = average_precision_score(y_true, scores) if len(set(y_true.tolist())) > 1 else float("nan")
+    return {
+        "n": len(samples),
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "pr_auc": float(pr_auc),
+        "confusion_matrix": cm.tolist(),
+    }
+
+
+def run_xgb_evaluation(protocol: str, videos: dict[str, VideoData]) -> None:
+    if not XGB_MODELS_DIR.exists():
+        print(f"找不到 {XGB_MODELS_DIR}——請先完成 Colab 訓練(notebooks/train_colab.ipynb),")
+        print("把下載回來的 xgb_fold_*.json / xgb_final.json / xgb_loso_results.json 放進這個資料夾。")
+        sys.exit(1)
+
+    models = load_xgb_fold_models()
+    if not models:
+        print(f"{XGB_MODELS_DIR} 存在但找不到任何 xgb_fold_*.json,無法評估。")
+        sys.exit(1)
+    print(f"已載入 {len(models)} 個折模型:{sorted(models.keys())}")
+
+    folds = load_splits(protocol)
+    local_results = []
+    for fold in folds:
+        subject = fold.get("subject")
+        if subject not in models:
+            print(f"警告:找不到 {subject} 的模型,跳過此折")
+            continue
+        test_ids = [v for v in fold["test"] if v in videos]
+        test_samples = build_window_samples(test_ids, videos)
+        metrics = xgb_window_metrics(test_samples, models[subject])
+        metrics["fold"] = subject
+        local_results.append(metrics)
+        print(f"  {subject}(本機重現): n={metrics['n']} P={_fmt(metrics.get('precision'))} R={_fmt(metrics.get('recall'))} F1={_fmt(metrics.get('f1'))}")
+
+    colab_results_path = XGB_MODELS_DIR / "xgb_loso_results.json"
+    lines = ["# XGBoost 本機重現結果", "", f"模型來源：`{XGB_MODELS_DIR}`（Colab 訓練，見 notebooks/train_colab.ipynb）", ""]
+    if colab_results_path.exists():
+        colab_data = json.loads(colab_results_path.read_text(encoding="utf-8"))
+        colab_by_fold = {m["fold"]: m for m in colab_data["folds"]}
+        lines += ["## Colab vs 本機重現對照（容許 ±0.01 誤差）", "", "| 折 | 指標 | Colab | 本機 | 差異 | 通過 |", "|---|---|---|---|---|---|"]
+        all_ok = True
+        for r in local_results:
+            colab_m = colab_by_fold.get(r["fold"])
+            if colab_m is None:
+                continue
+            for key in ["precision", "recall", "f1"]:
+                diff = abs(r[key] - colab_m[key])
+                ok = diff <= 0.01
+                all_ok = all_ok and ok
+                lines.append(f"| {r['fold']} | {key} | {colab_m[key]:.3f} | {r[key]:.3f} | {diff:.3f} | {'✅' if ok else '❌'} |")
+        print(f"\n=== 重現驗收：{'✅ 全部通過(±0.01)' if all_ok else '❌ 有指標誤差超過 0.01,請檢查 xgboost 版本是否一致'} ===")
+    else:
+        lines += ["（找不到 `xgb_loso_results.json`,無法自動比對 Colab 數字,僅列本機重現結果）", ""]
+        lines += ["| 折 | n | Precision | Recall | F1 | PR-AUC |", "|---|---|---|---|---|---|"]
+        for r in local_results:
+            lines.append(f"| {r['fold']} | {r['n']} | {_fmt(r.get('precision'))} | {_fmt(r.get('recall'))} | {_fmt(r.get('f1'))} | {_fmt(r.get('pr_auc'))} |")
+
+    out_path = RESULTS_DIR / "xgb_baseline.md"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"已寫入 {out_path}")
+
+
 def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -396,13 +493,17 @@ def main() -> None:
             pass
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=["rule"], default="rule")
+    parser.add_argument("--model", choices=["rule", "xgb"], default="rule")
     parser.add_argument("--protocol", choices=["loso", "groupkfold"], default="loso")
     args = parser.parse_args()
 
     print("載入 70 支影片的關鍵點與特徵中...")
     videos = load_all_videos()
     print(f"已載入 {len(videos)} 支影片的特徵。")
+
+    if args.model == "xgb":
+        run_xgb_evaluation(args.protocol, videos)
+        return
 
     folds = load_splits(args.protocol)
     fold_results = []

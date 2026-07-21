@@ -312,3 +312,32 @@ def make_windows(features: FrameFeatures, window_s: float = 1.5, stride_s: float
         windows.append(Window(start_idx=start, end_idx=end, start_t=t[start], end_t=t[end - 1]))
         start += stride_frames
     return windows
+
+
+# Phase 3(XGBoost)用:每個視窗的統計聚合特徵,~9 基礎特徵 × 6 統計量 = 54 維(docs/PLAN.md 第 4 章)。
+STAT_BASE_FEATURES = ["theta", "omega", "v_y", "rho", "drho", "head_ankle_diff", "hip_height", "y_std", "missing_rate"]
+STAT_AGGREGATES = ["mean", "std", "min", "max", "last_minus_first", "max_abs_derivative"]
+STAT_FEATURE_NAMES = [f"{base}_{agg}" for base in STAT_BASE_FEATURES for agg in STAT_AGGREGATES]
+
+
+def window_stat_vector(features: FrameFeatures, window: Window) -> np.ndarray:
+    """視窗內每個基礎特徵取 {mean,std,min,max,last-first,max|Δ|} 六個統計量,串成固定長度向量。
+    全缺失(NaN)的基礎特徵該組六格填 0(missing_rate 這個特徵本身已經標記缺失狀態,不需要另外加 flag)。
+    """
+    sl = slice(window.start_idx, window.end_idx)
+    out = np.zeros(len(STAT_FEATURE_NAMES), dtype=np.float32)
+    for i, base in enumerate(STAT_BASE_FEATURES):
+        arr = getattr(features, base)[sl]
+        valid = arr[~np.isnan(arr)]
+        off = i * len(STAT_AGGREGATES)
+        if len(valid) == 0:
+            continue
+        out[off + 0] = np.mean(valid)
+        out[off + 1] = np.std(valid) if len(valid) > 1 else 0.0
+        out[off + 2] = np.min(valid)
+        out[off + 3] = np.max(valid)
+        first = arr[0] if not np.isnan(arr[0]) else valid[0]
+        last = arr[-1] if not np.isnan(arr[-1]) else valid[-1]
+        out[off + 4] = last - first
+        out[off + 5] = np.max(np.abs(np.diff(valid))) if len(valid) > 1 else 0.0
+    return out

@@ -50,6 +50,7 @@
 | D14 | 2026-07-21 | ultralytics 8.4.102 的 `half=True` 參數已棄用（跑實際程式時印出 deprecation warning），推論/訓練一律改用 `quantize=16`（FP16；`quantize=32`/`None`＝FP32）。**全文所有 `half=True` 已改為 `quantize=16`** | 實測 `model.track(...)` 呼叫時的官方 deprecation 警告 + 讀 `ultralytics/cfg/default.yaml` 原始碼確認 `quantize` 取代 `half`/`int8`（2026-07-21） |
 | D15 | 2026-07-21 | **人工標註確認：40 段 ADL 只有 2 位受試者（P1、P2）出現，P3/P4/P5 只在 30 段 fall 中出現**（URFD 官方頁未說明此分佈，經使用者實際看片確認；官方頁亦未提供任何受試者對照資訊可佐證或反駁）。**連帶影響 LOSO 折的可用指標**：P1、P2 折的 test 集同時含 fall+adl（可算完整 sensitivity+specificity）；**P3/P4/P5 折的 test 集只有 6 段 fall、0 段 adl（只能算 sensitivity，無法算 specificity/FP，Phase 2 evaluate.py 與 README 評估章節須誠實註記此限制，不得把三折平均當完整指標呈現）**。標註工具亦發現並修正一個 bug：cv2 視窗失焦期間累積的按鍵會在恢復焦點瞬間暴衝連續觸發，已於 `annotate_urfd.py` 加入 400ms 按鍵沖刷（`flush_stale_keys`）防止此問題重演；ADL 40 段因此事件重新以 `--review --kind adl` 複查過一輪，複查後 P1/P2 呈現乾淨區塊分佈（非隨機跳動），採信此結果 | `scripts/make_splits.py` 實測輸出：LOSO P1 test=30(fall6+adl24)、P2 test=22(fall6+adl16)、P3/P4/P5 test 皆為 6(fall6+adl0)；`uv run pytest` 12 passed（含原本 skip 的 LOSO 測試） |
 | D16 | 2026-07-21 | **兩個影響評估正確性的 bug/校準發現，皆已修正**：(1) `fsm.py` 的 NaN 防呆寫得過寬——任一特徵缺失就整幀跳過，連「已經過多久」這種純時間判斷（FALLING 逾時、CONFIRMED 累積、ALERTED 冷卻）也一起被跳過，導致跌倒瞬間常見的短暫遮擋讓狀態機永久卡死，實測事件級 Sensitivity 恆為 0。已重構 `step()`：只有「需要當下特徵值」的判斷（觸發偵測、躺姿/恢復判定）才在缺失時跳過，純時間的轉移判斷永遠照常檢查。(2) **修完 bug 後仍發現 `falling_timeout_s`(文獻預設 1.0s)與 D11 的評估用 `confirm_seconds=2s` 對本資料集系統性過嚴**：30 段 fall 中 23 段的「已倒地」期間存在同時滿足三躺姿條件的瞬間，但常在觸發後 1.0–1.5s 才出現；即使放寬逾時窗成功進 ON_GROUND(25/30)，進入後到影片結束的剩餘時長全數 <2.0s(中位數 0.77s)，文獻預設 N=2s 下 25/25 都來不及累積滿。**修正**：`scripts/evaluate.py` 的折內調參範圍新增 `falling_timeout_s∈{1.0,1.5,2.0,2.5,3.0}s` 與 `confirm_seconds∈{0.3,0.5,0.8,1.0,1.5}s` 聯合搜尋(只用 train 影片),此舉**取代 D11 原訂「評估固定用 N=2s」的假設**——評估用 N 也需要折內調參，不是寫死的常數；部署預設 N=10s(給真實家用場景防誤報)不受影響，維持獨立。調參後 LOSO 事件級 Sensitivity：P1=1.00、P2=1.00、P3=0.83、P4=0.67、P5=0.50；Specificity(僅 P1/P2 可算)0.92/0.94 | 2026-07-21 用 fall-01 逐幀 trace 定位 NaN 防呆 bug；用全部 30 段 fall 影片實測「進 ON_GROUND 後剩餘時長」分佈(10/25/50/75/90 分位數 0.43/0.56/0.77/1.37/1.63s)佐證 confirm_seconds 系統性過嚴；`uv run python scripts/evaluate.py --model rule --protocol loso` 實測輸出見 `docs/results/rule_baseline.md` |
+| D17 | 2026-07-21 | **Phase 3 上傳 Colab 的資料改用「視窗統計特徵匯出檔」而非原計畫的整批 `data/processed/` npz**：`scripts/prepare_train_export.py` 把 70 支影片的關鍵點特徵轉成 54 維視窗統計向量(9 基礎特徵 × {mean,std,min,max,last−first,max|Δ|}，`features.py` 新增 `window_stat_vector`)，打包成單一 223KB 的 `data/export/xgb_windows.npz`——比上傳原始關鍵點序列更小、不需要在 Colab 重新實作 features.py 的邏輯，且純數字無隱私疑慮。**xgboost 版本鎖定 3.2.0**(3.3.0+ 需要 Python 3.12，本專案鎖 3.11，D10)，notebook 開頭會 assert 版本一致。**模型回傳設計**：Colab 端把 5 折模型 + 1 個全資料訓練的最終部署模型 + `xgb_loso_results.json`(各折數字)打包成一個 zip 下載，本機 `evaluate.py --model xgb` 直接載入這些模型在本機重跑推論比對，而非在本機重新訓練湊數字——因為不同硬體(GPU vs CPU、histogram 分桶)訓練 XGBoost 可能有非決定性的浮點差異，重新訓練無法保證 ±0.01 內重現，但用同一份已訓練好的模型做推論是完全決定性的 | `uv run python scripts/prepare_train_export.py` 實測輸出：1499 視窗、正例 9.7%、54 維特徵、223KB；`uv run python -c "import xgboost; print(xgboost.__version__)"` 確認本機 3.2.0；`uv pip install --dry-run xgboost --python 3.11` 確認 3.2.0 為支援 Python 3.11 的最新版 |
 
 ## 3. 系統架構
 
@@ -227,11 +228,11 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 ### Phase 3 Colab 訓練 + 權重回程（約 1–2 天；3b 選做）
 
-- [ ] 打包 `data/processed/`（npz 共約數 MB～數十 MB）上傳 Colab；`notebooks/train_colab.ipynb` 在 T4 端到端跑完：讀 npz → 切窗 → **以 group id 斷言切分（notebook 內防呆，不信任外部）** → XGBoost（視窗統計特徵 ~50–80 維：8–10 基礎特徵 × {mean,std,min,max,last−first,max-derivative}）→ LOSO 評估 → SHAP 特徵重要度圖
-- [ ] notebook 開頭 pin 版本（xgboost 本機/Colab 同版，避免序列化不相容）
-- [ ] （3b 選做）GRU：1 層 hidden=64（~2–4 萬參數）、輸入 `(T≈38 @25Hz×1.5s, F)`、資料增強（水平翻轉/縮放/時間抖動/關鍵點噪聲）、3 seeds + 早停；LOSO 全跑約 20–30 分鐘
-- [ ] 權重回 `models/`；**驗收**：`uv run python scripts/evaluate.py --model xgb --protocol loso` 本機重現 Colab 數字（±0.01）
-- [ ] 權重上傳 HF（模型卡過 public-copy-check）；README 對照表成形（rule vs XGB (vs GRU)）；`git tag phase-3`
+- [x] 打包 `data/processed/`（npz 共約數 MB～數十 MB）上傳 Colab；`notebooks/train_colab.ipynb` 在 T4 端到端跑完：讀 npz → 切窗 → **以 group id 斷言切分（notebook 內防呆，不信任外部）** → XGBoost（視窗統計特徵 ~50–80 維：8–10 基礎特徵 × {mean,std,min,max,last−first,max-derivative}）→ LOSO 評估 → SHAP 特徵重要度圖 → **改用更小的視窗統計特徵匯出檔而非整批 npz（D17），notebook 已寫好，AI 端全部就緒；實際在 Colab 執行由使用者操作（AI 無法登入使用者的 Google 帳號代為執行）**
+- [x] notebook 開頭 pin 版本（xgboost 本機/Colab 同版，避免序列化不相容）→ **鎖定 3.2.0（D17，非 3.3.0，因本專案鎖 Python 3.11）**
+- [ ] （3b 選做）GRU：1 層 hidden=64（~2–4 萬參數）、輸入 `(T≈38 @25Hz×1.5s, F)`、資料增強（水平翻轉/縮放/時間抖動/關鍵點噪聲）、3 seeds + 早停；LOSO 全跑約 20–30 分鐘 → **選做，視使用者意願，待主線(XGBoost)跑完再議**
+- [ ] 權重回 `models/`；**驗收**：`uv run python scripts/evaluate.py --model xgb --protocol loso` 本機重現 Colab 數字（±0.01）→ **`evaluate.py --model xgb` 已寫好並測試「模型不存在時的錯誤訊息」正常；等使用者從 Colab 帶回權重才能真正驗收**
+- [ ] 權重上傳 HF（模型卡過 public-copy-check）；README 對照表成形（rule vs XGB (vs GRU)）；`git tag phase-3` → **上傳 HF 前會先跟使用者確認才執行（對外發布動作）**
 
 ### Phase 4 即時偵測 + 通報 + demo 收尾（約 1.5–2 天）
 
