@@ -181,36 +181,37 @@ def overlay_frame(
     # 底色寬度用「最長預期字樣」在該字級下量出來的實際寬度決定(不是量當下這幀的文字),
     # 字級只依畫面尺寸而定、跟目前顯示什麼內容無關,所以每幀量出來的寬度都一樣寬,
     # 不會有 D23 那種「換一幀文字變短、矩形跟著縮小蓋不到殘留字」的問題。
+    # 左上(狀態)/右上(特徵+FPS)是兩個獨立的資訊框,寬度各自封頂在畫面寬度的 48%,
+    # 確保中間永遠留有間隔——不然文字長一點,兩個底色矩形會頭尾相接,看起來像
+    # 融成一整條怪異的通欄黑帶(使用者實測回饋)。
+    max_box_w = int(frame.shape[1] * 0.48)
+
     label_thick = max(1, round(2 * scale))
     label_text_w, label_text_h = cv2.getTextSize("ON_GROUND 10.0/10.0s", cv2.FONT_HERSHEY_SIMPLEX, label_font, label_thick)[0]
     label_h = label_text_h + int(18 * scale)
-    label_w = min(frame.shape[1], label_text_w + int(16 * scale))
+    label_w = min(max_box_w, label_text_w + int(16 * scale))
     _translucent_rect(frame, (0, 0), (label_w, label_h), alpha=0.65)
     _put_text_outlined(frame, label, (int(8 * scale), int(label_h * 0.72)), label_font, color, label_thick)
 
-    # 特徵讀數移到右上角(原本左下的位置改留給畫面本身,避免遮住主體)。
+    # 右上角合併特徵讀數(第一行)+ FPS(第二行)成一個框,底部因此完全淨空,
+    # 也讓「兩個獨立資訊框」的版面更明確,不會有右上/右下兩塊各自為政的感覺。
     if feats is not None:
         feat_line = f"t={feats.get('theta', float('nan')):.1f} v={feats.get('v_y', float('nan')):.2f} h={feats.get('hip_height', float('nan')):.2f}"
     else:
         feat_line = "(no detection yet)"
-    feat_text_w, feat_text_h = cv2.getTextSize("t=-180.0 v=-9.99 h=-9.99", cv2.FONT_HERSHEY_SIMPLEX, feat_font, 1)[0]
-    feat_h = feat_text_h + int(16 * scale)
-    feat_w = min(frame.shape[1], feat_text_w + int(14 * scale))
-    _translucent_rect(frame, (frame.shape[1] - feat_w, 0), (frame.shape[1], feat_h), alpha=0.65)
-    _put_text_outlined(frame, feat_line, (frame.shape[1] - feat_w + int(7 * scale), int(feat_h * 0.68)), feat_font, (255, 255, 255), 1)
+    fps_line = f"FPS {fps:.1f}"
 
+    feat_text_w, feat_text_h = cv2.getTextSize("t=-180.0 v=-9.99 h=-9.99", cv2.FONT_HERSHEY_SIMPLEX, feat_font, 1)[0]
     fps_text_w, fps_text_h = cv2.getTextSize("FPS 999.9", cv2.FONT_HERSHEY_SIMPLEX, fps_font, 1)[0]
-    fps_h = fps_text_h + int(14 * scale)
-    fps_w = min(frame.shape[1], fps_text_w + int(12 * scale))
-    _translucent_rect(frame, (frame.shape[1] - fps_w, frame.shape[0] - fps_h), (frame.shape[1], frame.shape[0]), alpha=0.65)
-    _put_text_outlined(
-        frame,
-        f"FPS {fps:.1f}",
-        (frame.shape[1] - fps_w + int(6 * scale), frame.shape[0] - int(fps_h * 0.3)),
-        fps_font,
-        (255, 255, 255),
-        1,
-    )
+    right_w = min(max_box_w, max(feat_text_w, fps_text_w) + int(14 * scale))
+    line_gap = int(6 * scale)
+    right_h = feat_text_h + fps_text_h + line_gap + int(20 * scale)
+
+    _translucent_rect(frame, (frame.shape[1] - right_w, 0), (frame.shape[1], right_h), alpha=0.65)
+    feat_y = feat_text_h + int(8 * scale)
+    _put_text_outlined(frame, feat_line, (frame.shape[1] - right_w + int(7 * scale), feat_y), feat_font, (255, 255, 255), 1)
+    fps_y = feat_y + fps_text_h + line_gap
+    _put_text_outlined(frame, fps_line, (frame.shape[1] - right_w + int(7 * scale), fps_y), fps_font, (255, 255, 255), 1)
     return frame
 
 
