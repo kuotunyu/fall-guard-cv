@@ -9,10 +9,10 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-21
-**現在做到哪**：**Phase 3 主線（XGBoost）完成**：使用者在 Colab 跑完 `fall-guard-cv_train_xgboost_colab.ipynb`，AI 已把權重(`models/xgboost/`，已 gitignore)接回本機、跑 `evaluate.py --model xgb --protocol loso` 驗證，**全部 15 項指標(5 折 × P/R/F1)與 Colab 完全重現(誤差 0.000)**。過程中發現並修正一個真的會讓重現失敗的 bug（D18：`prepare_train_export.py` 與 `evaluate.py` 兩邊視窗篩選邏輯各自維護、飄移不一致，已合併成共用函式）。README 模型選型章節已回填 rule vs XGBoost 對照表。`uv run pytest -q` 26 passed。
-**下一步（開機第一件事）**：(1) 使用者 commit 這批異動（見下方待辦的建議 commit 訊息）。(2) 決定 GRU（3b，選做）要不要做；不做的話下一步是「權重上傳 HF」+ `git tag phase-3`，之後開 Phase 4（即時偵測 + Discord 通報）。
-**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2）。GRU（3b）選做與否待使用者決定。**模型上傳 Hugging Face 前 AI 會先問過使用者才執行**（對外發布動作）。
-**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 前完成即可）。(2) **這批 Phase 3 收尾（evaluate.py/prepare_train_export.py 的 D18 修正、README/PLAN.md/PROGRESS.md 更新）的 git commit 由使用者自行執行**。(3) 決定 GRU 做不做、決定要不要現在上傳權重到 HF。
+**現在做到哪**：**Phase 3 完成**：XGBoost 在 Colab 訓練完成、本機重現驗證全數通過(誤差 0.000，過程修正 D18 bug)，GRU(3b)使用者決定不做，權重已上傳 Hugging Face（<https://huggingface.co/steven0226/fall-guard-cv-xgboost>，公開，D19）。README 模型選型章節已回填 rule vs XGBoost 對照表 + HF 連結。`uv run pytest -q` 26 passed。**尚差 `git tag phase-3`（使用者自行執行）**。
+**下一步（開機第一件事）**：使用者 commit 本輪異動並打 `git tag phase-3`；之後開 Phase 4——即時偵測介面(`src/fallguard/detect.py`)、VLM 描述(`vlm.py`)、Discord 通報(`notify.py`)、執行緒模型。動工前先查官方文件確認 langchain-google-genai／Discord API 現行用法(D4/D5 已有前期查證,但實作前再次確認版本未過期)。
+**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2）。
+**待使用者人工處理**：(1) 建立 Discord Webhook 並填入 .env 的 `DISCORD_WEBHOOK_URL`（Phase 4 通報測試前必須完成）。(2) **本輪（D18/D19、README/PLAN.md/PROGRESS.md 更新、upload_to_hf.py）的 git commit + `git tag phase-3` 由使用者自行執行**。
 **已知坑**：torch 必須走 cu128 index（已寫進 pyproject，重建環境直接 `uv sync` 即可）。clone 後要跑一次 `git config core.hooksPath .githooks` 守門才會生效。公開文件裡不要寫出「磁碟機:\Users」的字面路徑示例——會被自家 hook 擋下，用文字描述代替。ultralytics `half=True` 已棄用，一律用 `quantize=16`（D14）。ultralytics 下載的 `.pt` 權重會先落在 CWD，`prepare_data.py` 已自動搬進 `models/pretrained/`（已 gitignore）。**cv2 GUI 視窗失焦時按鍵會被 OS 排隊，恢復焦點瞬間可能暴衝連續觸發**——`annotate_urfd.py` 已加 400ms 按鍵沖刷防護。**LOSO 的 P3/P4/P5 折沒有 ADL 測試樣本**（D15，evaluate.py/README 已處理成 N/A 不硬平均）。**任何狀態機/計時邏輯寫 NaN 防呆時，純時間判斷(逾時/確認/冷卻)必須獨立於特徵值是否缺失都照常執行**（D16 血淚教訓，未來寫 detect.py 部署版時要記得）。**評估用的跌倒確認秒數不是寫死 2s，是折內調參出來的**（D16 取代 D11 假設，grid 見 evaluate.py TUNE_CONFIRM_SECONDS_GRID）。matplotlib 中文圖表記得設定 `font.family` 為系統中文字型（msjh.ttc），預設字型沒有中文字形。
 
 ## 📜 Phase 日誌（append-only）
@@ -77,7 +77,7 @@
 - 決策連結：PLAN.md D16（NaN 防呆修正 + confirm_seconds/falling_timeout_s 折內調參取代 D11 固定值）。
 - **本輪 git commit/tag 由使用者自行執行**：features.py/fsm.py/rules.py/evaluate.py 與相關修正已由 AI 分批 commit(commit 範圍 `aea6096..22a9f86` 附近,見 `git log --oneline`)；error_analysis.py + README 回填 + 本篇文件更新這批**尚未 commit**，建議 commit 訊息：`feat: add error analysis and fill in README with rule baseline results`，完成後 `git tag phase-2`。
 
-### Phase 3 — Colab 訓練 XGBoost + 權重回程（2026-07-21 完成主線，tag: phase-3 待打）
+### Phase 3 — Colab 訓練 XGBoost + 權重回程 + 上傳 HF（2026-07-21 完成，tag: phase-3 待打）
 
 - 完成：
   - `src/fallguard/features.py`：新增 `window_stat_vector`/`STAT_FEATURE_NAMES`（54 維視窗統計特徵：9 基礎特徵 × 6 統計量）。
@@ -85,11 +85,14 @@
   - `notebooks/fall-guard-cv_train_xgboost_colab.ipynb`：XGBoost LOSO 五折訓練 + 全資料最終部署模型 + SHAP 特徵重要度，xgboost 鎖 3.2.0（D17，本專案 Python 3.11 限制）。過程中因使用者操作卡關兩次，改成分批（三次獨立）上傳檔案的設計，並把檔名從 `train_colab.ipynb` 改成 `fall-guard-cv_train_xgboost_colab.ipynb`（辨識度考量）。
   - 使用者於 Colab（Pro+，T4）執行完成，帶回 `xgb_fold_{P1..P5}.json` + `xgb_final.json` + `xgb_loso_results.json` + `shap_summary.png`，AI 協助解壓並放進 `models/xgboost/`（已 gitignore）。
   - `scripts/evaluate.py --model xgb`：本機重現驗證。**首次驗收失敗**（P2 precision 差 0.025、P4 recall 差 0.017），追出根因是 `prepare_train_export.py` 與 `evaluate.py` 各自維護一份視窗排除邏輯、互相飄移（D18）。修正：新增共用函式 `build_xgb_stat_samples`，兩邊都改呼叫它，不再各自實作。
-  - README「模型選型」章節回填 rule vs XGBoost 對照表 + SHAP 交叉驗證觀察。
+  - README「模型選型」章節回填 rule vs XGBoost 對照表 + SHAP 交叉驗證觀察 + HF 連結。
+  - **GRU（3b）使用者決定不做**，直接進上傳階段。
+  - `scripts/upload_to_hf.py` + 模型卡（`models/xgboost/README.md`，過 public-copy-check）：上傳到 `steven0226/fall-guard-cv-xgboost`（公開，CC BY-NC-SA 4.0，D19）。`config.py` 補 `hf_token` 欄位。
 - 驗證證據（2026-07-21 實測）：
   - 修正前：`uv run python scripts/evaluate.py --model xgb --protocol loso` → ❌ P2/P4 誤差超出 ±0.01
   - 修正後：同指令 → ✅ 全部 15 項指標(5 折 × P/R/F1)與 Colab 完全重現，誤差 0.000；本機重現視窗數 802/598/30/33/36 與 Colab n_test 完全一致
   - `uv run pytest -q` → `26 passed`
-- 決策連結：PLAN.md D17（視窗統計特徵匯出設計、xgboost 版本鎖定、模型回傳而非重訓練的理由）、D18（視窗篩選邏輯飄移 bug 與修正）。
-- 尚未完成：GRU（3b，選做，待使用者決定）；權重上傳 Hugging Face（AI 會先問過使用者才執行，屬對外發布動作）；`git tag phase-3`（待使用者 commit 這批後補上）。
+  - `uv run python scripts/upload_to_hf.py --repo-id steven0226/fall-guard-cv-xgboost` → 上傳成功；WebFetch 確認 HF 頁面檔案清單與模型卡渲染正確
+- 決策連結：PLAN.md D17（視窗統計特徵匯出設計、xgboost 版本鎖定、模型回傳而非重訓練的理由）、D18（視窗篩選邏輯飄移 bug 與修正）、D19（HF 上傳、CC BY-NC-SA 4.0 授權選擇）。
+- 尚未完成：`git tag phase-3`（待使用者 commit 本輪後補上）。
 - **本輪 git commit/tag 由使用者自行執行**。

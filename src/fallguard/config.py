@@ -35,6 +35,7 @@ class Settings:
     local_only: bool = _bool("LOCAL_ONLY", False)
     send_image: bool = _bool("SEND_IMAGE", True)
     discord_webhook_url: str | None = os.environ.get("DISCORD_WEBHOOK_URL") or None
+    hf_token: str | None = os.environ.get("HF_TOKEN") or None
 
     data_dir: Path = REPO_ROOT / "data"
     models_dir: Path = REPO_ROOT / "models"
