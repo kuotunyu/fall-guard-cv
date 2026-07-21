@@ -66,13 +66,15 @@ stateDiagram-v2
 | l | 70.4 | — |
 | x | 71.6 | — |
 
-本專案預設用 m,而非最高精度的 x:居家是單人近距離拍攝，不是擁擠人群小目標偵測，m 已足夠準，x 的額外算力換不到實際效益。YOLO26 是 2026-01 最新世代，NMS-free、對遮擋更穩——家具遮擋正是居家常態，細節見[官方文件](https://docs.ultralytics.com/models/yolo26)。
+本專案預設用 m,而非最高精度的 x:居家是單人近距離拍攝，不是擁擠人群小目標偵測，m 已足夠準，x 的額外算力換不到實際效益。YOLO26 是 2026-01 最新世代，免除逐框比對去重的 NMS 後處理、對遮擋更穩——家具遮擋正是居家常態，細節見[官方文件](https://docs.ultralytics.com/models/yolo26)。
 
 ### 表2:分類器對照 — 規則式 baseline vs XGBoost，LOSO，視窗級
 
+以下用 **LOSO，Leave-One-Subject-Out** 交叉驗證評估：把受試者資料切成 5 份，英文稱 fold、下表欄位統一標「折」，P1~P5 即為第幾份;每份輪流當測試集、其餘受試者的資料才拿去訓練，模型完全沒看過同一人的資料，完整切分協定見下方「評估結果」。
+
 XGBoost 用 54 維視窗統計特徵，9 個基礎特徵 × 6 種統計量，在 Colab T4 上以[訓練 notebook](notebooks/fall-guard-cv_train_xgboost_colab.ipynb)訓練，方法細節見 [docs/PLAN.md](docs/PLAN.md) D17/D18。權重已上傳 Hugging Face：[steven0226/fall-guard-cv-xgboost](https://huggingface.co/steven0226/fall-guard-cv-xgboost)，授權 CC BY-NC-SA 4.0。
 
-| 折 | Precision：規則/XGB | Recall：規則/XGB | F1：規則/XGB |
+| 折/fold | Precision：規則/XGB | Recall：規則/XGB | F1：規則/XGB |
 |---|---|---|---|
 | P1 | 0.677 / 0.609 | 0.913 / 0.913 | 0.778 / 0.730 |
 | P2 | 0.656 / 0.575 | 0.913 / 0.913 | 0.764 / 0.706 |
@@ -83,6 +85,8 @@ XGBoost 用 54 維視窗統計特徵，9 個基礎特徵 × 6 種統計量，在
 **折內調參後的規則式整體略優於 XGBoost**，符合小樣本預期——URFD 僅 1499 個視窗、145 個正例，樹模型優勢有限；但 XGBoost 在 P5 折 recall 明顯領先，0.667 比 0.467，顯示兩者錯誤模式不同。SHAP 分析顯示最重要特徵是 `y_std_min`、`hip_height_min`，恰好呼應規則式方法鎖定的「髖高」核心判別特徵，完整圖見 `models/xgboost/shap_summary.png`。本機重現驗證：5 折 × P/R/F1 全部 15 項指標與 Colab 誤差皆為 0.000，完全重現，細節見 D18。
 
 ### 表3:VLM 分工
+
+**VLM，Vision-Language Model**：簡單說就是「看得懂照片、還能用自然語言描述照片內容」的 AI 模型，本專案跌倒通報最後一步靠它把現場畫面轉成人看得懂的文字描述。
 
 | 角色 | 模型設定 | 用途 |
 |---|---|---|
@@ -144,7 +148,7 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 
 ### 視窗級指標 — 1.5 秒滑動視窗，precision/recall/F1/PR-AUC
 
-| 折 | F1：文獻預設閾值 | F1：折內調參後 |
+| 折/fold | F1：文獻預設閾值 | F1：折內調參後 |
 |---|---|---|
 | P1 | 0.762 | 0.778 |
 | P2 | 0.759 | 0.764 |
@@ -163,7 +167,7 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 
 ### 事件級指標 — 整段影片是否被狀態機正確判定
 
-| 折 | Sensitivity：文獻預設 | Sensitivity：折內調參後 | Specificity：調參後 |
+| 折/fold | Sensitivity：文獻預設 | Sensitivity：折內調參後 | Specificity：調參後 |
 |---|---|---|---|
 | P1 | 0.00 | **1.00** | 0.92 |
 | P2 | 0.00 | **1.00** | 0.94 |
