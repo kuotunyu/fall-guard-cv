@@ -147,9 +147,8 @@ def _translucent_rect(frame: np.ndarray, pt1: tuple[int, int], pt2: tuple[int, i
 
 
 def _put_text_outlined(frame: np.ndarray, text: str, org: tuple[int, int], font_scale: float, color: tuple[int, int, int], thickness: int) -> None:
-    """黑色描邊 + 前景色疊字——單純的實心色字在半透明底色或明亮背景上容易顯得褪色,
-    描邊能大幅提高對比,不管背景是什麼顏色都看得清楚。"""
-    cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
+    """疊字文字——每個元素底下都已經有底色矩形襯著,不需要再幫文字本身加黑色描邊
+    (描邊會讓字看起來像帶陰影,觀感不舒服,使用者回饋後拿掉);LINE_AA 只是讓邊緣平滑。"""
     cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
 
 
