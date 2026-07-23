@@ -8,6 +8,7 @@ license = { file = "LICENSE" }
 dependencies = [
     "langchain>=1.3.14",
     "langchain-google-genai>=4.2.7",
+    "langchain-openai>=1.3.5,<1.4.0",  # 1.4.0+ 需要 langchain-core>=1.5.0,會連帶升級目前鎖定的 langchain-core 1.4.9(Phase 6,D42)
     "huggingface-hub>=1.24.0",
     "lap>=0.5.12",
     "matplotlib>=3.10",
