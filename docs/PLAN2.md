@@ -24,7 +24,7 @@
 
 ---
 
-## Phase 5：評估數字的統計誠實度（信賴區間）
+## Phase 5：評估數字的統計誠實度（信賴區間）✅ 已完成（2026-07-22）
 
 ### 目標
 
@@ -36,27 +36,23 @@
 - 事件級表格由 `write_report()`（rule 路徑）產出到 `docs/results/rule_baseline.md`
 - README「事件級指標」表格同步呈現這些數字
 
-### 實作步驟
+### 實作步驟（全部完成）
 
-1. `scripts/evaluate.py` 新增純函式：
-   ```python
-   def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]
-   ```
-   手寫 Wilson score 公式，不加新套件依賴。n=0 時回傳 `(0.0, 1.0)`（全然未知）。
-2. `write_report()` 的事件級表格加「95% CI」欄（格式如 `0.83 [0.44, 0.97]`或獨立欄，以 GitHub 渲染不擠版為準）；**視窗級 F1 不加 CI**——F1 沒有封閉解、要用 bootstrap，對這個資料量投報比低，此取捨記入 Decision Log。
-3. 重跑 `uv run python scripts/evaluate.py --model rule --protocol loso` 再生 `rule_baseline.md`——**驗收：既有 F1/Sensitivity 數字 diff 為零，只新增 CI 欄**。
-4. README 事件級表格同步加 CI（或表下加註）；「切分協定」段落補一句白話警語（例：「P3-P5 折每折僅 6 段測試影片，數字的變異區間很寬，請搭配信賴區間解讀」）。
-5. `tests/` 新增 `wilson_interval` 單元測試：邊界 0/6 與 6/6、一組已知值對照（如 5/6 → 約 [0.44, 0.97]）、n=0。
+1. [x] 新增純函式 `wilson_interval(successes, n, z=1.96) -> tuple[float, float]`——**實作時放到 `src/fallguard/stats.py`（新檔）而非 `scripts/evaluate.py`**：`scripts/` 不是可安裝套件、既有測試從不直接 import `scripts/` 內的函式，放進 `src/fallguard/` 才能用專案既有的 `from fallguard.x import y` 模式正常單元測試，架構上更一致。手寫公式，不加新套件依賴，n≤0 時回傳 `(0.0, 1.0)`。
+2. [x] `write_report()` 的兩個事件級表格（文獻預設、折內調參後）各加「Sensitivity 95% CI」「Specificity 95% CI」兩欄獨立呈現（未用併欄格式）；**視窗級 F1 表格不加 CI**——此取捨已記入 Decision Log D41。
+3. [x] 重跑 `uv run python scripts/evaluate.py --model rule --protocol loso` 再生 `rule_baseline.md`——`diff` 驗收：既有 F1/Sensitivity/Specificity/延遲數字逐格一致，diff 為零，只新增 CI 欄與一段說明文字。
+4. [x] README 事件級表格**不加欄**，改在表格下方加一句「樣本量提醒」白話段落，指向 `rule_baseline.md` 看完整 CI（見上方 DoD 的風險評估說明）。
+5. [x] `tests/test_stats.py` 新增 8 項單元測試：0/6、6/6、5/6 已知值對照（[0.44, 0.97]，與人工試算一致）、n=0、以及 4 組邊界情境的 `0≤lo≤hi≤1` 通用性檢查。
 
 ### DoD
 
-- [ ] `uv run pytest -q` 全綠（44+，新增 wilson 測試）
-- [ ] `rule_baseline.md` 舊數字完全不變、只多 CI 欄
-- [ ] README 表格在 GitHub 實際渲染不擠版（沿用 D35 的驗證法：GitHub markdown API 渲染 + 欄寬檢查）
+- [x] `uv run pytest -q` 全綠 → **51 passed**（新增 `tests/test_stats.py` 8 項）
+- [x] `rule_baseline.md` 舊數字完全不變、只多 CI 欄 → `diff` 改版前後確認：F1/Sensitivity/Specificity/延遲數字逐格比對完全一致，只新增「Sensitivity 95% CI」「Specificity 95% CI」兩欄與一段說明文字
+- [x] README 不擠版 → **實作時改變做法**：README 只加了一句「樣本量提醒」白話段落（指向 rule_baseline.md 看完整 CI），沒有加表格欄位，故不存在 D35 那種窄欄擠壓風險，不需要跑重量級截圖驗證；完整的 CI 欄位改放在 `docs/results/rule_baseline.md`（10 欄的細節表格，GitHub 表格 CSS 對超寬表格是加水平捲軸而非硬擠壓儲存格換行，風險剖面跟 README 的緊湊表格不同）
 
 ### 風險
 
-幾乎無。唯一風險是表格加欄後擠版——已有 D35 的預覽驗證流程可循。
+實作結果：無意外風險。決定把詳細 CI 數字全放進 `docs/results/rule_baseline.md`、README 只留一句話指過去，從根本上避開了表格擠版風險，不需要用到 D35 的截圖驗證流程。
 
 ---
 

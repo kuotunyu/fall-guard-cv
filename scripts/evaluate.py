@@ -25,6 +25,7 @@ from fallguard.config import REPO_ROOT
 from fallguard.features import FrameFeatures, compute_features, make_windows, window_stat_vector
 from fallguard.fsm import FallStateMachine, FSMConfig, State
 from fallguard.rules import RuleThresholds, window_arrays, window_score
+from fallguard.stats import wilson_interval
 
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 META_PATH = REPO_ROOT / "data" / "urfd_meta.csv"
@@ -234,8 +235,12 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
             alert_delays.append(confirmed_t - impact_t)
 
     sensitivity = confirmed_fall / len(fall_ids) if fall_ids else float("nan")
+    # Wilson score 95% CI(Phase 5,docs/PLAN2.md):小樣本折(如 P3/P4/P5 每折僅 6 段 fall)的點估計
+    # 需要搭配信賴區間解讀,不能只看單一數字。
+    sensitivity_ci = wilson_interval(confirmed_fall, len(fall_ids)) if fall_ids else None
 
     specificity = None
+    specificity_ci = None
     fp_per_hour = None
     if adl_ids:  # D15:P3/P4/P5 折沒有 adl test 樣本,specificity 留 None(不可算)
         confirmed_adl = 0
@@ -247,13 +252,17 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
                 confirmed_adl += 1
             total_hours += video_duration_hours(video)
         specificity = 1.0 - (confirmed_adl / len(adl_ids))
+        true_negatives = len(adl_ids) - confirmed_adl
+        specificity_ci = wilson_interval(true_negatives, len(adl_ids))
         fp_per_hour = (confirmed_adl / total_hours) if total_hours > 0 else float("nan")
 
     return {
         "n_fall": len(fall_ids),
         "n_adl": len(adl_ids),
         "event_sensitivity": sensitivity,
+        "event_sensitivity_ci": sensitivity_ci,
         "event_specificity": specificity,
+        "event_specificity_ci": specificity_ci,
         "false_alarms_per_hour": fp_per_hour,
         "algo_delay_s_mean": float(np.mean(algo_delays)) if algo_delays else None,
         "alert_delay_s_mean": float(np.mean(alert_delays)) if alert_delays else None,
@@ -333,6 +342,14 @@ def _fmt(x, digits=3) -> str:
     return f"{x:.{digits}f}"
 
 
+def _fmt_ci(ci) -> str:
+    """格式化 Wilson score 信賴區間(Phase 5)。ci 為 None 時代表沒有樣本可算。"""
+    if ci is None:
+        return "N/A"
+    lo, hi = ci
+    return f"[{lo:.2f}, {hi:.2f}]"
+
+
 def write_report(protocol: str, fold_results: list[dict]) -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESULTS_DIR / "rule_baseline.md"
@@ -363,14 +380,15 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
         "",
         "### 文獻預設(v_y>2.0、θ>60°、FALLING 逾時 1.0s)",
         "",
-        "| 折 | fall 段數 | adl 段數 | Sensitivity | Specificity | FP/小時 | 演算法延遲(s) | 告警延遲(s) |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 折 | fall 段數 | adl 段數 | Sensitivity | Sensitivity 95% CI | Specificity | Specificity 95% CI | FP/小時 | 演算法延遲(s) | 告警延遲(s) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in fold_results:
         e = r["event_default"]
         spec_note = "" if e["n_adl"] > 0 else "（無 adl 測試樣本,D15）"
         lines.append(
-            f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt(e['event_specificity'])}{spec_note} "
+            f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt_ci(e.get('event_sensitivity_ci'))} "
+            f"| {_fmt(e['event_specificity'])}{spec_note} | {_fmt_ci(e.get('event_specificity_ci'))} "
             f"| {_fmt(e['false_alarms_per_hour'])} | {_fmt(e['algo_delay_s_mean'])} | {_fmt(e['alert_delay_s_mean'])} |"
         )
 
@@ -378,19 +396,24 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
         "",
         "### 折內調參後(v_y/θ 沿用視窗級調參結果;falling_timeout_s × confirm_seconds 以 train 折聯合搜尋,D16)",
         "",
-        "| 折 | fall 段數 | adl 段數 | Sensitivity | Specificity | FP/小時 | 演算法延遲(s) | 告警延遲(s) | 逾時/確認秒數 |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| 折 | fall 段數 | adl 段數 | Sensitivity | Sensitivity 95% CI | Specificity | Specificity 95% CI | FP/小時 | 演算法延遲(s) | 告警延遲(s) | 逾時/確認秒數 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in fold_results:
         e = r["event_tuned"]
         th = r["tuned_thresholds"]
         spec_note = "" if e["n_adl"] > 0 else "（無 adl 測試樣本,D15）"
         lines.append(
-            f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt(e['event_specificity'])}{spec_note} "
+            f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt_ci(e.get('event_sensitivity_ci'))} "
+            f"| {_fmt(e['event_specificity'])}{spec_note} | {_fmt_ci(e.get('event_specificity_ci'))} "
             f"| {_fmt(e['false_alarms_per_hour'])} | {_fmt(e['algo_delay_s_mean'])} | {_fmt(e['alert_delay_s_mean'])} | {th['falling_timeout_s']}s / {th['confirm_seconds']}s |"
         )
 
     lines += [
+        "",
+        "**Wilson score 95% 信賴區間（Phase 5，docs/PLAN2.md）**：每折的測試影片數很少（P3/P4/P5 折各只有 6 段 fall），"
+        "Sensitivity/Specificity 只是點估計，務必搭配 CI 解讀——CI 越寬代表這個數字越不穩固，不是模型表現不好，是樣本量本來就小。"
+        "視窗級 F1 不附 CI：F1 沒有封閉解公式，要用 bootstrap 重抽樣才能估，這個資料量下投入產出比不高，暫不做。",
         "",
         "**重要發現（D16）**：文獻預設的 `FALLING→ON_GROUND` 1.0 秒逾時窗對本資料集(YOLO26-pose bbox + URFD 攝影機視角)偏緊,"
         "實測 30 段 fall 中 23 段在「已確認倒地」期間內存在同時滿足 θ>60°/ρ>1.0/髖高<0.5 三條件的瞬間,但常發生在觸發後 1.0–1.5 秒左右。"

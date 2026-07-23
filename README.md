@@ -176,6 +176,8 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 | P4 | 0.00 | 0.67 | N/A |
 | P5 | 0.00 | 0.50 | N/A |
 
+**樣本量提醒**：P3-P5 折每折的測試集只有 6 段 fall 影片，上表的 Sensitivity 是小樣本點估計，數字的變異區間本身就很寬——完整的 95% 信賴區間（Wilson score）見 [docs/results/rule_baseline.md](docs/results/rule_baseline.md)。
+
 **重要發現**：文獻預設的時間參數，躺姿持續 2 秒才算數，對 URFD 短片段系統性過嚴——25/30 段影片判定「已倒地」後，剩餘片長中位數僅 0.77 秒，文獻預設下事件級 Sensitivity 恆為 0。折內搜尋較短時間參數後 Sensitivity 明顯回升，完整數據見 [docs/results/rule_baseline.md](docs/results/rule_baseline.md)。
 
 **已知限制**：跌倒的「站姿起跌 / 坐姿起跌」分層報告因缺乏官方逐段對照表暫時從缺，細節見 [docs/PLAN.md](docs/PLAN.md) §7.2。

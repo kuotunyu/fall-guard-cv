@@ -9,8 +9,8 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-22
-**現在做到哪**：**主線 Phase 0-4 全部完成並發布（CI 綠、兩輪完整度稽核 + D39 收尾複查通過）；使用者決定啟動 Phase 5-7 後續增強，實作藍圖已寫成 [docs/PLAN2.md](docs/PLAN2.md)（D40），尚未開始實作**。三項增強：(5) 事件級指標加 Wilson 信賴區間、(6) VLM 描述品質對照（GEMINI vs OPENAI 用 events/ 12 張真實截圖實測）、(7) Le2i 跨資料集泛化（效益最大）。執行順序 5→6→7，細節/DoD/風險全在 PLAN2.md。`uv run pytest -q` 43 passed；`check_public_text.py` 全綠。
-**下一步（開機第一件事）**：commit 本輪異動（新增 docs/PLAN2.md、PLAN.md D40）並推上 GitHub；然後照 PLAN2.md 從 Phase 5（信賴區間）開始實作。Phase 6 前使用者需確認 .env 有 OPENAI_API_KEY；Phase 7 前需備妥 Kaggle token（~/.kaggle/kaggle.json）。
+**現在做到哪**：**主線 Phase 0-4 已發布；Phase 5-7 後續增強藍圖見 [docs/PLAN2.md](docs/PLAN2.md)（D40）——Phase 5（事件級指標加 Wilson 95% 信賴區間）已完成（D41）**：新增 `src/fallguard/stats.py::wilson_interval()`，`evaluate.py` 事件級表格加 CI 欄，`rule_baseline.md` 舊數字 diff 為零、只多兩欄；README 只加一句白話提醒（沒加表格欄，不存在擠版風險）。Phase 6（VLM 對照）、Phase 7（Le2i 泛化）尚未開始。`uv run pytest -q` 51 passed；`check_public_text.py` 全綠。
+**下一步（開機第一件事）**：commit 本輪異動（`src/fallguard/stats.py`、`tests/test_stats.py`、`scripts/evaluate.py`、`README.md`、`docs/results/rule_baseline.md`、`docs/PLAN.md` D41、`docs/PLAN2.md` Phase 5 勾選）並推上 GitHub；之後照 PLAN2.md 開始 Phase 6（VLM 對照）——需先確認 `.env` 有 `OPENAI_API_KEY`。
 **未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2，D25 稽核確認此限制屬誠實揭露、非疏漏，不阻擋發布）。
 **待使用者人工處理**：無（commit + push 本輪異動即可）。
 **已知坑**：torch 必須走 cu128 index（已寫進 pyproject，`uv sync` 即可）。clone 後要跑 `git config core.hooksPath .githooks`。公開文件不寫死本機絕對路徑（會被 hook 擋）。ultralytics 用 `quantize=16` 不用已棄用的 `half=True`（D14）。**NaN 防呆只能擋「需要當下特徵值」的判斷，純時間判斷(逾時/確認/冷卻)要照常執行**（D16 血淚教訓）。**LOSO P3/P4/P5 折沒有 ADL 測試樣本**，指標誠實標 N/A（D15）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度短影片檔會失效**，量吞吐量要用獨立單執行緒迴圈(`--benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串或 content block list，一律用 `.text` 屬性取值**（D22）。**cv2 疊字/overlay 一次性 demo 腳本容易踩的坑**：同一畫面緩衝區重複疊字時底色矩形要固定寬度、半透明底色蓋不住舊字要每次疊字用乾淨畫面複製、字級縮放公式不要寫成二次縮放會被壓到肉眼難辨（D26/D29）；ffmpeg 轉 GIF 用 `palettegen stats_mode=full + dither=sierra2_4a` 才能保住大面積純色文字不失真變色，肉眼驗收要看「轉出來的 GIF」不是轉檔前的 mp4（D28）；畫面上顯示 FPS 用滑動視窗而非累積平均才不會有暖機爬升假象，且**不同程式(demo 腳本 vs 正式 detect.py)天生速度不同，不能不配速就直接比較數字**（D30-D32）。matplotlib 中文圖表要設 `font.family` 為系統中文字型（msjh.ttc）。
