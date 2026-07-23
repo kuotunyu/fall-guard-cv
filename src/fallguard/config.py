@@ -26,7 +26,7 @@ def _bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
     gemini_lite_model: str = os.environ.get("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
     openai_model: str = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
     pose_model: str = os.environ.get("POSE_MODEL", "yolo26m-pose.pt")

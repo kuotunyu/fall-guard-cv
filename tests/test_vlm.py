@@ -63,3 +63,31 @@ def test_describe_scene_returns_fallback_on_missing_file(tmp_path, monkeypatch):
     monkeypatch.setattr(vlm, "_build_model", lambda: _FakeModel("不應該被呼叫到"))
     result = vlm.describe_scene(tmp_path / "does-not-exist.jpg")
     assert result == vlm.FALLBACK_TEXT
+
+
+def test_describe_scene_forwards_model_and_provider_to_init_chat_model(tmp_path, monkeypatch):
+    """Phase 6(docs/PLAN2.md,VLM 描述品質對照):describe_scene 帶 model/provider 參數時,
+    要把它們原封不動轉給 init_chat_model,且不能帶 google_genai 專屬的 safety_settings
+    (OpenAI 不支援這個參數)。攔截 init_chat_model 本身,不真的呼叫任何 API。"""
+    captured = {}
+
+    def _fake_init_chat_model(model, **kwargs):
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        return _FakeModel("測試用回應")
+
+    monkeypatch.setattr("langchain.chat_models.init_chat_model", _fake_init_chat_model)
+    result = vlm.describe_scene(_dummy_image(tmp_path), model="gpt-5-mini", provider="openai")
+
+    assert captured["model"] == "gpt-5-mini"
+    assert captured["kwargs"] == {"model_provider": "openai"}
+    assert result == "測試用回應"
+
+
+def test_describe_scene_default_call_unchanged(tmp_path, monkeypatch):
+    """不傳 model/provider 時,_build_model 呼叫方式必須跟改動前完全一樣(零參數),
+    確保 detect.py 的既有呼叫端(vlm.describe_scene(confirm_path))行為零改動。"""
+    calls = []
+    monkeypatch.setattr(vlm, "_build_model", lambda *a, **kw: calls.append((a, kw)) or _FakeModel("ok"))
+    vlm.describe_scene(_dummy_image(tmp_path))
+    assert calls == [((), {})]
