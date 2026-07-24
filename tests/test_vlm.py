@@ -91,3 +91,29 @@ def test_describe_scene_default_call_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(vlm, "_build_model", lambda *a, **kw: calls.append((a, kw)) or _FakeModel("ok"))
     vlm.describe_scene(_dummy_image(tmp_path))
     assert calls == [((), {})]
+
+
+def test_build_model_default_branch_uses_google_genai_safety_settings(monkeypatch):
+    """涵蓋 `_build_model()` 零參數(預設)分支本身——這是 detect.py 實際會呼叫到的路徑,
+    但先前所有零參數測試都直接 monkeypatch 掉 `_build_model` 整個函式,從未真正執行過
+    這段組裝 google_genai safety_settings 的程式碼(收尾複查發現)。這裡改成攔截更底層的
+    `langchain.chat_models.init_chat_model`,讓 `_build_model()` 本體真正跑一次。"""
+    from google.genai.types import HarmBlockThreshold, HarmCategory
+
+    from fallguard.config import settings
+
+    captured = {}
+
+    def _fake_init_chat_model(model, **kwargs):
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        return "不重要,這裡只驗證傳入參數"
+
+    monkeypatch.setattr("langchain.chat_models.init_chat_model", _fake_init_chat_model)
+
+    vlm._build_model()
+
+    assert captured["model"] == settings.gemini_model
+    assert captured["kwargs"]["model_provider"] == "google_genai"
+    safety_settings = captured["kwargs"]["safety_settings"]
+    assert safety_settings[HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT] == HarmBlockThreshold.BLOCK_NONE
