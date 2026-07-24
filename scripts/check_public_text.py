@@ -33,6 +33,26 @@ BUILTIN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# 已知裝有居家隱私內容、理論上應一直被 .gitignore 排除的路徑(見 .gitignore)。這是
+# .gitignore 之外的第二層防呆:即使 .gitignore 未來被誤改、或有人手滑 `git add -f`,
+# 這裡仍會攔下。events/*.jpg 是二進位檔,`git diff` 對它只會產生 "Binary files differ",
+# 內容掃描(scan_text)完全掃不到;檔名本身也不含任何禁詞或內建樣式,單靠字串比對攔不住
+# 這兩類路徑(收尾複查發現)。
+BLOCKED_PATH_PREFIXES: tuple[str, ...] = ("events/",)
+BLOCKED_PATHS: tuple[str, ...] = ("docs/results/vlm_comparison_detail.md",)
+
+
+def scan_blocked_paths(label: str, paths: list[str]) -> list[str]:
+    hits: list[str] = []
+    for path in paths:
+        normalized = path.strip().replace("\\", "/")
+        if not normalized:
+            continue
+        if normalized in BLOCKED_PATHS or any(normalized.startswith(p) for p in BLOCKED_PATH_PREFIXES):
+            hits.append(f"{label} 路徑「{path}」依專案規定應保持在 .gitignore 內,如需公開請走人工複查流程")
+    return hits
+
+
 def load_redlist() -> list[str]:
     if not REDLIST_PATH.exists():
         rel = REDLIST_PATH.relative_to(REPO_ROOT)
@@ -77,6 +97,7 @@ def scan_staged(redlist: list[str]) -> list[str]:
     hits: list[str] = []
     names = _git("diff", "--cached", "--name-only")
     hits += scan_text("staged-檔名", names, redlist)
+    hits += scan_blocked_paths("staged-路徑黑名單", names.splitlines())
 
     diff = _git("diff", "--cached", "--unified=0", "--no-color")
     current = "?"
@@ -106,6 +127,7 @@ def main(argv: list[str]) -> int:
         msg_path = Path(argv[argv.index("--msg-file") + 1])
         hits += scan_text("commit-msg", msg_path.read_text(encoding="utf-8", errors="replace"), redlist)
     else:
+        hits += scan_blocked_paths("指定路徑黑名單", argv)
         for arg in argv:
             p = Path(arg)
             if p.is_file():
