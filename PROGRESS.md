@@ -9,11 +9,11 @@
 ## 🧭 快速回憶區
 
 **上次收工日期**：2026-07-24
-**現在做到哪**：**主線 Phase 0-4 + 後續增強 Phase 5-7（[docs/PLAN2.md](docs/PLAN2.md)）全部完成**。使用者離開電腦期間授權自行做到底（唯一限制：不 git push）。Phase 5 信賴區間、Phase 6 VLM 對照皆已完成（D41-D44，細節見上次記錄）。**Phase 7（Le2i 跨資料集泛化，D45/D46）**：實地下載盤點後發現只有 130 段（非原估 ~191）有標註可驗證，Office/Lecture_room 無標註整批排除；新增 `prepare_le2i.py`（共用 `pose.py::extract_video_pose()`，不重造抽取邏輯）、`evaluate.py --protocol cross`；**過程中撞見一個 URFD 從未觸發過的真 bug**（`rules.py` 的 `-inf` 分數讓 sklearn PR-AUC 崩潰，Le2i 較嚴苛的偵測條件第一次踩到）已修正為有限值哨兵，`diff` 確認 URFD 既有結果零影響。跨資料集結果：Sensitivity=0.559、**Specificity=0.000**（3 段 adl 樣本太少，CI=[0,0.56]）——最可能根因是 URFD 調參後 `confirm_seconds` 只有 0.3 秒，套到 Le2i 日常活動門檻過低，已在 README 誠實記錄根因假說。順手發現並修正 `prepare_data.py`/`prepare_le2i.py` 共通的批次摘要統計漏算 bug。`uv run pytest -q` 60 passed；`check_public_text.py` 全綠；`.gitattributes` 新增修正 GitHub 語言統計誤判。**目前沒有已知的待辦事項**。
-**下一步（開機第一件事）**：檢視這一大批異動（`git status` 會看到不少新檔案，包含 `data/raw/le2i/`、`data/processed_le2i/` 但都已 .gitignore 不會被追蹤），確認滿意後自行 commit + push；`data/raw/le2i/` 解壓後約 17GB，硬碟空間夠的話可留著（方便之後重跑），不夠可自行刪除（不影響已產出的 npz 與報告）。之後若要繼續開發，PLAN.md「如果被問接下來會怎麼優化」有更多方向可選。
-**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2，D25 稽核確認此限制屬誠實揭露、非疏漏，不阻擋發布）。跨資料集 Specificity=0 的根因假說（confirm_seconds 過短）尚未實際驗證修正，屬未來可選優化方向,非阻擋項。
-**待使用者人工處理**：無，git commit + push 本輪異動即可（Kaggle token 已確認可用，Phase 7 完整跑完）。
-**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，`uv sync` 即可）。clone 後要跑 `git config core.hooksPath .githooks`。公開文件不寫死本機絕對路徑（會被 hook 擋）。ultralytics 用 `quantize=16` 不用已棄用的 `half=True`（D14）。**NaN 防呆只能擋「需要當下特徵值」的判斷，純時間判斷(逾時/確認/冷卻)要照常執行**（D16 血淚教訓）。**LOSO P3/P4/P5 折沒有 ADL 測試樣本**，指標誠實標 N/A（D15）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度短影片檔會失效**，量吞吐量要用獨立單執行緒迴圈(`--benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串或 content block list，一律用 `.text` 屬性取值**（D22）。**cv2 疊字/overlay 一次性 demo 腳本容易踩的坑**：同一畫面緩衝區重複疊字時底色矩形要固定寬度、半透明底色蓋不住舊字要每次疊字用乾淨畫面複製、字級縮放公式不要寫成二次縮放會被壓到肉眼難辨（D26/D29）；ffmpeg 轉 GIF 用 `palettegen stats_mode=full + dither=sierra2_4a` 才能保住大面積純色文字不失真變色，肉眼驗收要看「轉出來的 GIF」不是轉檔前的 mp4（D28）；畫面上顯示 FPS 用滑動視窗而非累積平均才不會有暖機爬升假象，且**不同程式(demo 腳本 vs 正式 detect.py)天生速度不同，不能不配速就直接比較數字**（D30-D32）。matplotlib 中文圖表要設 `font.family` 為系統中文字型（msjh.ttc）。**任何要進公開 repo 的檔案，若內容是「描述使用者真實個人資料/居家測試」的產出（如 VLM 描述、標註輔助圖），先問自己「這是抽象事實揭露、還是具體敘事式描述」——前者可公開、後者要拆到本機限定檔案（D44）**，不要預設「決策記錄已經公開過這件事」就代表逐項細節都能公開。
+**現在做到哪**：**主線 Phase 0-4 + 後續增強 Phase 5-7 全部完成，外加一輪收尾複查與修復**。Phase 0-7 細節見前次記錄（D1-D46）。本輪：使用者要求「看看哪邊可以做得更好」，跑了 32-agent 六維度審查（程式碼正確性/文件一致性/測試涵蓋度/評估方法論/作品集完成度/隱私合規），26 個 finding 全數驗證屬實並逐一修復（D47-D52）。**兩個真的會影響行為的 bug**：①`fsm.py` 恢復計時在特徵局部缺失(遮擋)期間會被靜默判定「已恢復直立」，撤銷已確認的跌倒告警(D49，安全性問題，已修)；②`evaluate.py::window_ground_truth()` 對 Le2i 標籤語意誤判，把真正的負例視窗當歧義剔除(D48，目前不影響任何已發布報表，已修)。另一個潛伏但無害的 bug：批次姿態抽取 `persist=True` 跨影片污染 ByteTrack 狀態(D50)，實測證實只影響從未被讀取的 `track_id` 欄位、不影響既有 npz 資料，不需重新抽取。**全部修正都已重跑 `evaluate.py`(loso/cross/xgb 三個協定)並 `git diff` 確認除刻意新增的文字說明外，所有已發布數字零變化**。另外肉眼核對了 Le2i 3 段 adl 影片，確認標籤正確(受試者刻意躺床墊,非真跌倒)，強化了 Specificity=0 的根因假說(D51)。文件面：修正 README 過時的「開發中」標籤、補回誤報分析表格漏掉的「其他」類別、修正死路徑的 SHAP 圖、移除 PROGRESS.md 裡意外洩漏的帳號關聯、`check_public_text.py` 新增路徑黑名單防呆。**README 重新加回第一人稱動機段(D47，supersedes D33)是 AI 草稿，需使用者親自審閱**——見下方「待使用者人工處理」。測試從 60 增到 81（新增 test_rules.py/test_evaluate.py 及既有檔案的覆蓋補強）。`uv run pytest -q` 81 passed；`check_public_text.py` 全綠。
+**下一步（開機第一件事）**：`git status` 看這輪異動（12 個修改檔+3 個新檔，含 `docs/assets/shap_summary.png`），讀一下 README.md 最上方新的動機段落草稿決定要不要修改用詞，滿意後自行 commit（建議依主題拆成幾個 commit,例如「文件/隱私修正」「fsm.py 安全性修正」「測試補強」分開,禁止巨型單一 commit）+ push。
+**未決問題**：README 動機段落（D47）是否維持這版措辭、或改回 D33 的「不放」決定，待使用者拍板。站姿/坐姿跌倒逐段對照表仍無官方來源可回補(D25 已確認此限制不阻擋發布,無變化)。
+**待使用者人工處理**：審閱 README.md 開頭新加的第一人稱動機段落(D47)，確認語氣自然、內容真實再定稿；其餘皆已完成，git commit + push 本輪異動即可。
+**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，`uv sync` 即可）。clone 後要跑 `git config core.hooksPath .githooks`。公開文件不寫死本機絕對路徑（會被 hook 擋）。**NaN 防呆只能擋「需要當下特徵值」的判斷，純時間判斷(逾時/確認/冷卻/恢復)要照常執行**（D16 血淚教訓，D49 是同一類坑的第二次現身：FSM 任何在 `feats_valid=True` 分支才會設定的計時器狀態，記得在 `feats_valid=False` 分支也要加對應的逾時重置，否則會變成無限容忍遮擋）。**ultralytics 的 `model.track(..., persist=True)` 只適合單一連續串流；同一個 model 物件批次處理多支互不相關的影片一律傳 `persist=False`，否則 ByteTrack 的 frame_id 跨影片不歸零**（D50）。**LOSO P3/P4/P5 折沒有 ADL 測試樣本**，指標誠實標 N/A（D15）。**VLM 回應的 `.content` 可能是純字串或 content block list，一律用 `.text` 屬性取值**（D22）。**任何要進公開 repo 的檔案，若內容是「描述使用者真實個人資料/居家測試」的產出，先問自己「這是抽象事實揭露、還是具體敘事式描述」——前者可公開、後者要拆到本機限定檔案（D44）**；一次性帳號代稱、內部路徑這類「情境臨時出現」的識別字串，redlist 規則式掃描結構上攔不住，公開文件寫作時要自己多留意(本輪收尾複查在 PROGRESS.md 抓到一起帳號關聯外洩，已修正)。
 
 ## 📜 Phase 日誌（append-only）
 
@@ -125,7 +125,7 @@
 
 - 使用者自行完成三次 commit + `git tag phase-4`。
 - **D24：webcam + Discord 真實送達驗證**——使用者用實體攝影機執行 `uv run python -m fallguard.detect --source 0`，在鏡頭前真人實際倒地（非影片檔模擬）。畫面疊加、狀態機判定、FPS 讀數皆正常；VLM 用真實 `GEMINI_MODEL` 產出兩次現場描述（姿態/環境/意識狀態/嚴重程度 1-5 分，內容合理可判讀）；Discord 頻道實際收到兩則通報。至此 Phase 4 最後兩項「只能靠程式碼審查/mock 驗證」的項目（webcam 路徑、Discord 真實送達）都補上真實環境證據。
-- **repo 建立與公開上線**：協助使用者釐清本機 `gh` CLI 誤登入 `tun0000`（測試帳號）而非 `kuotunyu`（求職用帳號）的問題，且 git 的 GitHub credential helper 委派給 `gh auth git-credential`，兩者需一致才能正確推送。使用者改用 `gh auth login` + `gh auth switch` 切換到 kuotunyu 後，由 AI 執行 `gh repo create fall-guard-cv --public`（在確認帳號正確後），使用者自行完成 `git push`。上線後逐項核對：Contributors 僅 kuotunyu 一人（無 tun0000/Claude）、phase-0~phase-4 共 5 個 tag 都在、`data/`/`models/` 沒有大型檔案或誤上傳的原始資料、`.env` 未被 commit、兩張 mermaid 圖用瀏覽器工具（非 WebFetch，因其不執行 JS 會誤判為「Loading」）確認實際渲染正常、demo.gif 直接打 raw 檔案 URL 確認 HTTP 200 且大小/型別正確。
+- **repo 建立與公開上線**：協助使用者釐清本機 `gh` CLI 帳號登入狀態與 git 的 GitHub credential helper（委派給 `gh auth git-credential`）不一致的問題，兩者需指向同一帳號才能正確推送。使用者改用 `gh auth login` + `gh auth switch` 切換到求職用帳號後，由 AI 執行 `gh repo create fall-guard-cv --public`（在確認帳號正確後），使用者自行完成 `git push`。上線後逐項核對：Contributors 僅該帳號一人（無其他測試帳號/Claude）、phase-0~phase-4 共 5 個 tag 都在、`data/`/`models/` 沒有大型檔案或誤上傳的原始資料、`.env` 未被 commit、兩張 mermaid 圖用瀏覽器工具（非 WebFetch，因其不執行 JS 會誤判為「Loading」）確認實際渲染正常、demo.gif 直接打 raw 檔案 URL 確認 HTTP 200 且大小/型別正確。
 - 過程中修正的環境問題：使用者一開始把 `DISCORD_WEBHOOK_URL` 貼到了外層 `4_fall-guard-cv/.env`（巢狀資料夾容易混淆的兩份 .env 之一），而非專案實際讀取的 `4_fall-guard-cv/fall-guard-cv/.env`；AI 用不印出網址內容的方式把值搬到正確位置並清空外層那份。
 - 驗證證據（2026-07-21 實測）：
   - 使用者實測回報：「我故意跌倒在地上，有收到 discord 通知」，附上兩則實際收到的完整通報文字
@@ -162,3 +162,20 @@
   - `diff` 前後對照確認 `rule_baseline.md`（URFD LOSO 數字）在 pose.py 重構、rules.py 修正兩次改動中皆完全不變
   - Le2i 全量抽取 130/130 成功，耗時 434s，平均偵測率 96.4%
 - **本輪 git commit/push 由使用者自行執行**。
+
+### 收尾：32-agent 多維度審查 + 全數修復（2026-07-24）
+
+- 使用者問「哪邊可以做得更好」，跑六維度平行審查（程式碼正確性/文件一致性/測試涵蓋度/評估方法論/作品集完成度/隱私合規），每個 finding 各由獨立 agent 讀真實檔案驗證後才回報，26 個 finding 全數驗證屬實（0 個被推翻），依優先度逐一修復。
+- **程式碼正確性(2 個真 bug + 1 個潛伏無害 bug)**：`fsm.py` 恢復計時在特徵局部缺失(遮擋)期間會被靜默判定「已恢復直立」、撤銷已確認的跌倒告警——新增 `_last_recovery_true_t` + 獨立的 `recovery_jitter_tolerance_s` 逾時重置，仿照既有的躺姿累積計時抖動容忍機制(D49)。`evaluate.py::window_ground_truth()` 對 URFD(-1/0/1 三值)與 Le2i(0/1 兩值)的標籤語意一視同仁，把 Le2i 真正的負例視窗誤判成歧義剔除——加 `VideoData.has_ambiguous_label` 旗標區分兩個資料集(D48)。批次姿態抽取對每支影片都傳 `persist=True`，理論上會讓 ByteTrack 狀態跨影片污染——用兩組真實影片對實測比對 persist=True/False 的逐幀輸出，證實只影響從未被讀取的 `track_id` 欄位，不影響既有 npz 資料，加 `persist` 參數但不需重新抽取(D50)。`rules.py` 順手清掉 D46 修復後留下的不可達死碼。
+- **驗證紀律**：修復後重跑 `evaluate.py`(loso/cross/xgb 三個協定)，`git diff` 確認除本輪刻意新增的文字說明外，`rule_baseline.md`/`cross_dataset.md`/`xgb_baseline.md` 所有已發布數字零變化——證實這些 bug 過去從未被現有資料觸發過，修正是純粹的前瞻性正確性/安全性加固。
+- **測試涵蓋度**：新增 `tests/test_rules.py`(5 項，window_score/classify_window/RuleThresholds 先前完全零覆蓋)、`tests/test_evaluate.py`(9 項，window_ground_truth/event_level_metrics/run_cross_evaluation 先前完全零覆蓋)；`test_fsm.py` 補 D16 局部特徵缺失情境、升級再告警(escalation)、D49 遮擋恢復回歸測試共 4 項；`test_notify.py` 補傳輸層例外處理 2 項；`test_vlm.py` 補 `_build_model()` 預設分支(先前一律被 monkeypatch 掉，從未真正執行過)1 項。60→81 個測試。
+- **文件與作品集打磨**：README 開頭過時的「🚧 開發中」標籤改為完工狀態陳述；重新考慮 D33，加回第一人稱動機段落(D47，AI 草稿，supersedes D33，需使用者審閱)；誤報分析表格補回漏掉的「其他」類別(25% 誤報率，原表格加總對不上宣稱的 40 段)；SHAP 圖死路徑改內嵌 `docs/assets/`；FP/小時指標補分母定義與樣本量透明度；`confirm_seconds` 搜尋網格的巢狀 CV 局限誠實揭露(D52)。
+- **隱私與守門**：PROGRESS.md 一句話意外把測試帳號與求職帳號綁定成同一人，抵銷了同段話本身想做的 Contributors 隱私措施，已改寫成不含帳號代稱的抽象敘述；`check_public_text.py` 新增路徑層級黑名單(`events/`、`vlm_comparison_detail.md`)，防呆不再只依賴 `.gitignore` 這道唯一防線。
+- **額外驗證**：肉眼抽查 Le2i 3 段 adl 影片的取樣幀，確認是受試者刻意躺床墊的居家版「躺床」ADL、非真跌倒，標籤正確；同時強化了 Specificity=0 的 `confirm_seconds` 根因假說(D51)。
+- 決策連結：PLAN.md D47-D52。
+- 驗證證據（2026-07-24 實測）：
+  - `uv run pytest -q` → `81 passed`
+  - `uv run python scripts/check_public_text.py`(全部本輪異動檔案)→ 全綠
+  - `git diff docs/results/rule_baseline.md`/`cross_dataset.md`/`xgb_baseline.md` → 除刻意新增文字外零變化
+  - scratchpad 驗證腳本(僅驗證用，未寫入 repo)：FSM 恢復 bug 最小重現、pose.py persist 影響比對(2 組影片對)、Le2i 3 段 adl 影片取樣幀截圖
+- **本輪 git commit/push 由使用者自行執行**（同既有規則：AI 不碰 git）。

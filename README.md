@@ -5,7 +5,9 @@
 [![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 🚧 開發中。進度見 [PROGRESS.md](PROGRESS.md),完整開發藍圖見 [docs/PLAN.md](docs/PLAN.md)。
+這是我用電腦視覺技術做的居家跌倒偵測練習專案：平時完全在本機運行、鏡頭畫面不上傳,只在真的判定跌倒時才通報家人。動機來自對台灣高齡社會獨居長者照護議題的關注,也想藉這個題目練習一次從資料前處理、模型評估到誠實揭露限制的完整流程——這是我的個人學習/作品集專案,不是產品。
+
+> ✅ Phase 0-7 已全部完成,含統計信賴區間、VLM 描述品質對照、URFD→Le2i 跨資料集泛化驗證。開發過程與決策記錄見 [PROGRESS.md](PROGRESS.md)、[docs/PLAN.md](docs/PLAN.md)。
 
 ![示範:規則式狀態機從 NORMAL 判定到 ALERTED 通報家人](docs/assets/demo.gif)
 
@@ -83,7 +85,11 @@ XGBoost 用 54 維視窗統計特徵，9 個基礎特徵 × 6 種統計量，在
 | P4 | 1.000 / 1.000 | 0.538 / 0.444 | 0.700 / 0.615 |
 | P5 | 1.000 / 1.000 | 0.467 / 0.667 | 0.636 / 0.800 |
 
-**折內調參後的規則式整體略優於 XGBoost**，符合小樣本預期——URFD 僅 1499 個視窗、145 個正例，樹模型優勢有限；但 XGBoost 在 P5 折 recall 明顯領先，0.667 比 0.467，顯示兩者錯誤模式不同。SHAP 分析顯示最重要特徵是 `y_std_min`、`hip_height_min`，恰好呼應規則式方法鎖定的「髖高」核心判別特徵，完整圖見 `models/xgboost/shap_summary.png`。本機重現驗證：5 折 × P/R/F1 全部 15 項指標與 Colab 誤差皆為 0.000，完全重現，細節見 D18。
+**折內調參後的規則式整體略優於 XGBoost**，符合小樣本預期——URFD 僅 1499 個視窗、145 個正例，樹模型優勢有限；但 XGBoost 在 P5 折 recall 明顯領先，0.667 比 0.467，顯示兩者錯誤模式不同。本機重現驗證：5 折 × P/R/F1 全部 15 項指標與 Colab 誤差皆為 0.000，完全重現，細節見 D18。
+
+SHAP 分析顯示最重要特徵是 `y_std_min`、`hip_height_min`，恰好呼應規則式方法鎖定的「髖高」核心判別特徵：
+
+![SHAP 特徵重要度摘要](docs/assets/shap_summary.png)
 
 ### 表3:VLM 分工
 
@@ -155,7 +161,7 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 
 **切分協定**：受試者級 **LOSO，Leave-One-Subject-Out** 為主協定，同一人的影片不會同時出現在訓練/測試集。經人工標註確認 ADL 40 段只有 P1、P2 兩位受試者出現，P3–P5 折的測試集沒有 ADL 樣本、只能算 Sensitivity，下表以 N/A 標示，不與 P1/P2 折平均。
 
-### 視窗級指標 — 1.5 秒滑動視窗，precision/recall/F1/PR-AUC
+### 視窗級指標 — 1.5 秒滑動視窗，F1（完整 precision/recall/PR-AUC 見 [docs/results/rule_baseline.md](docs/results/rule_baseline.md)）
 
 | 折/fold | F1：文獻預設閾值 | F1：折內調參後 |
 |---|---|---|
@@ -196,6 +202,7 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 
 | 動作類別 | 段數 | 誤報率 |
 |---|---|---|
+| 其他（未歸入以下四類的日常動作） | 4 | 25.0% |
 | 躺床 | 7 | 14.3% |
 | 撿東西/彎腰 | 14 | 7.1% |
 | 蹲下/綁鞋帶 | 6 | 0.0% |
@@ -215,11 +222,13 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 |---|---|---|
 | Sensitivity | 0.559 | [0.47, 0.64] |
 | Specificity | 0.000 | [0.00, 0.56] |
-| FP/小時 | 110.5 | — |
+| FP/小時 | 110.5（分母＝ADL 影片總時長，僅 3 段共 97.9 秒，外推倍數約 37×，數字不具統計穩定性） | — |
 
 **誠實的結論**：Sensitivity 掉到 0.56，跟 URFD 自己最差的兩折（P4=0.67、P5=0.50）差不多量級，還在可以接受的範圍；但 Specificity 崩到 0，3 段日常活動全部誤報。**可能原因**：URFD 折內調參後 `confirm_seconds` 只有 0.3 秒——這是因應上方「事件級指標」提到的 URFD 片段過短問題而調出來的極短值，套到 Le2i 上等於「只要姿態有 0.3 秒看起來像躺平就通報」，門檻低到 Le2i 影片裡任何一個蹲下、彎腰的瞬間都可能被誤判。這不是「模型學壞了」，是**跨資料集測試直接沿用評估用的極短確認秒數**本來就不合理——本專案實際部署預設 `confirm_seconds=10s`（見「即時偵測」一節），而不是這裡拿去測 Le2i 的評估值 0.3s，真實使用情境不會這麼敏感。
 
 Specificity 的信賴區間 [0.00, 0.56] 也提醒：3 段日常活動樣本太少，0% 這個數字本身變異區間極寬，不代表「這套系統在任何新場景下都會全部誤報」，只能說「用評估用的極短確認秒數直接套到新場景是危險的」。完整數字見 [docs/results/cross_dataset.md](docs/results/cross_dataset.md)；Le2i 來源見「資料集與授權」。
+
+**額外驗證過標籤本身沒問題**：肉眼抽查這 3 段日常活動影片後確認都是同一種佈景——受試者刻意在地上鋪床墊、緩慢走近躺上去，近似 URFD「躺床」ADL 的居家版本，不是真的跌倒，adl 標籤正確；誤報是評估用極短確認秒數造成的，不是資料標註品質問題（細節見 `scripts/prepare_le2i.py` 檔頭與 docs/PLAN.md D51）。
 
 ## 隱私設計
 
