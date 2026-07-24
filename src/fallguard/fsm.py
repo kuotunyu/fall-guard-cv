@@ -38,6 +38,10 @@ class FSMConfig:
     recovery_theta_threshold: float = 40.0  # 進 60°/出 40° 遲滯
     recovery_hip_height_threshold: float = 0.7
     recovery_hold_s: float = 2.0
+    # 恢復計時在特徵缺失(遮擋)期間允許的最長空白——超過就重新起算,不能讓遮擋時間也算進
+    # 「已恢復直立」,否則等於在沒有持續視覺證據下撤銷告警(D49)。獨立於 lying_jitter_tolerance_s:
+    # 躺姿確認寧可容忍稍長抖動,恢復判定則該更保守(寧可誤判為未恢復,不該誤判為已恢復)。
+    recovery_jitter_tolerance_s: float = 0.5
 
     cooldown_s: float = 120.0
 
@@ -75,6 +79,7 @@ class FallStateMachine:
         self._lying_accum_start_t: float | None = None
         self._last_lying_true_t: float | None = None
         self._recovery_start_t: float | None = None
+        self._last_recovery_true_t: float | None = None
         self._last_alert_t: float | None = None
         self._missing_history: deque[tuple[float, bool]] = deque()
         self._last_t: float | None = None
@@ -173,6 +178,7 @@ class FallStateMachine:
             if self._recovery_criteria(theta, hip_height):
                 if self._recovery_start_t is None:
                     self._recovery_start_t = t
+                self._last_recovery_true_t = t
             else:
                 self._recovery_start_t = None
         else:
@@ -180,6 +186,10 @@ class FallStateMachine:
             # 但缺失時間一旦超過抖動容忍上限,一樣要重新起算(呼應 §7.3 缺失處理原則)。
             if self._last_lying_true_t is not None and (t - self._last_lying_true_t) > cfg.lying_jitter_tolerance_s:
                 self._lying_accum_start_t = None
+            # 恢復計時同理不能讓遮擋空白時間也算數,否則等於在沒有持續視覺證據下靜默撤銷
+            # 已確認的跌倒告警(D49)——缺失時間一旦超過容忍上限,恢復計時重新起算。
+            if self._last_recovery_true_t is not None and (t - self._last_recovery_true_t) > cfg.recovery_jitter_tolerance_s:
+                self._recovery_start_t = None
 
         # 以下皆為純時間判斷,即使本幀特徵缺失(feats_valid=False)也要照常檢查,
         # 否則跌倒後續的短暫遮擋會讓 ON_GROUND→CONFIRMED、ALERTED 冷卻卡死。
@@ -188,6 +198,7 @@ class FallStateMachine:
             self._lying_accum_start_t = None
             self._last_lying_true_t = None
             self._recovery_start_t = None
+            self._last_recovery_true_t = None
             self._last_alert_t = None
             return
 
