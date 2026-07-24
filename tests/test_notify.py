@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import types
 
+import requests
+
 import fallguard.notify as notify
 
 
@@ -99,6 +101,33 @@ def test_send_fall_alert_429_exhausts_retry_returns_false(monkeypatch):
 
     def fake_post(url, **kwargs):
         return _FakeResponse(429, json_body={"retry_after": 0.01})
+
+    monkeypatch.setattr(notify.requests, "post", fake_post)
+    ok = notify.send_fall_alert("測試描述", image_path=None, webhook_url="https://example.invalid/webhook")
+    assert ok is False
+
+
+def test_send_fall_alert_network_timeout_returns_false(monkeypatch):
+    """_post_with_retry() 對 requests.post 本身拋出的傳輸層例外(連線逾時/DNS 失敗等)
+    要印出原因、回傳 False,不能讓例外往外冒(檔頭 docstring 的承諾),也不該重試。"""
+    monkeypatch.setattr(notify, "settings", _fake_settings())
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(kwargs)
+        raise requests.exceptions.Timeout("simulated network timeout")
+
+    monkeypatch.setattr(notify.requests, "post", fake_post)
+    ok = notify.send_fall_alert("測試描述", image_path=None, webhook_url="https://example.invalid/webhook")
+    assert ok is False
+    assert len(calls) == 1  # 傳輸層錯誤不重試,只呼叫一次
+
+
+def test_send_fall_alert_connection_error_returns_false(monkeypatch):
+    monkeypatch.setattr(notify, "settings", _fake_settings())
+
+    def fake_post(url, **kwargs):
+        raise requests.exceptions.ConnectionError("simulated DNS failure")
 
     monkeypatch.setattr(notify.requests, "post", fake_post)
     ok = notify.send_fall_alert("測試描述", image_path=None, webhook_url="https://example.invalid/webhook")

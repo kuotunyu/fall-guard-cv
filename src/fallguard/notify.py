@@ -60,6 +60,11 @@ def _post_with_retry(url: str, payload: dict, image_path: Path | None, max_retri
                 resp = requests.post(url, data=data, files={"files[0]": ("snapshot.jpg", fh, "image/jpeg")}, timeout=TIMEOUT_S)
             else:
                 resp = requests.post(url, data=data, timeout=TIMEOUT_S)
+        except requests.exceptions.RequestException as exc:
+            # 傳輸層錯誤(連線逾時/DNS 失敗等)不重試(不像 429 是應用層可重試的錯誤),
+            # 直接印出原因、回傳 False,兌現檔頭 docstring「不拋例外」的承諾。
+            print(f"[notify] Discord 送出失敗:{type(exc).__name__} {exc}")
+            return False
         finally:
             if fh:
                 fh.close()
