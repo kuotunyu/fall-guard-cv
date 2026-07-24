@@ -68,8 +68,9 @@ def window_score(arrays: dict[str, np.ndarray], thresholds: RuleThresholds) -> f
 
     trigger_mask = valid & ((v_y > thresholds.v_y_threshold) | (np.abs(omega) > thresholds.omega_threshold))
     if not trigger_mask.any():
-        # 沒觸發:分數為「離觸發閾值還差多少」的負值(越負代表越不像)
-        return float(np.nanmax(v_y[valid]) - thresholds.v_y_threshold) if valid.any() else float("-inf")
+        # 沒觸發:分數為「離觸發閾值還差多少」的負值(越負代表越不像)。此處 valid.any() 恆真
+        # (第 66-67 行已提前 return NO_DETECTION_SCORE),不再需要防 -inf,見 D46。
+        return float(np.nanmax(v_y[valid]) - thresholds.v_y_threshold)
 
     trigger_idx = int(np.argmax(trigger_mask))
     margin_theta = theta[trigger_idx:] - thresholds.theta_threshold
