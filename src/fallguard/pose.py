@@ -35,13 +35,18 @@ def resolve_pose_weights(name: str) -> str:
     return name
 
 
-def extract_video_pose(model, video_path: Path) -> dict:
+def extract_video_pose(model, video_path: Path, persist: bool = False) -> dict:
     """對整支影片檔跑 pose 追蹤,回傳逐幀陣列;不含任何標籤資訊——標籤語意因資料集而異
     (URFD 用逐幀 CSV、Le2i 用 fall 起訖幀標註),由呼叫端在這份陣列之上自行套用。
 
     回傳 dict 含 xyn(T,17,2)/conf(T,17)/bbox_xywh(T,4)/track_id(T,)/fps(float)/
     timestamps(T,),T 為總幀數。追蹤參數(quantize/max_det/tracker)與 detect.py 的
-    即時推論刻意保持同一套,避免離線抽取與線上推論的行為不一致。
+    即時推論刻意保持同一套,避免離線抽取與線上推論的行為不一致——但 `persist` 是例外:
+    這裡預設 False,因為批次抽取(prepare_data.py/prepare_le2i.py)在同一個 model 物件上
+    對「一批互不相關的影片」逐支呼叫,不是單一連續串流,`persist=True` 會讓 ByteTrack 的
+    frame_id 計數跨影片不歸零,導致每支影片(除了批次裡第一支)第一次出現的人在第一幀
+    可能因 `STrack.is_activated` 只在 `frame_id==1` 才立即為真而被整幀濾掉(見 D50)。
+    detect.py 的即時推論走的是真正的單一連續串流,`PoseEstimator.infer()` 仍用 `persist=True`。
     """
     import cv2
 
@@ -57,7 +62,7 @@ def extract_video_pose(model, video_path: Path) -> dict:
         quantize=16,
         max_det=1,
         tracker="bytetrack.yaml",
-        persist=True,
+        persist=persist,
         verbose=False,
     )
     for r in results:
