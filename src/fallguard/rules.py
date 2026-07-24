@@ -14,6 +14,13 @@ import numpy as np
 from .fsm import FSMConfig
 from .features import FrameFeatures, Window
 
+# window_score() 的「整個視窗完全沒偵測到人」哨兵值。語意上是「這個視窗絕不可能是跌倒」,
+# 理論上該用 -inf,但 sklearn 的 average_precision_score/precision_recall_curve 不接受
+# 非有限值的分數陣列會直接拋例外。改用夠大的有限負數:分類判斷(> 0)結果不變,PR-AUC
+# 計算也不會再炸。URFD 的 70 支影片從未真的觸發這個分支(否則早就在既有評估中炸過),
+# 是 Phase 7 導入 Le2i(偵測條件較嚴苛,部分視窗整段無偵測)才第一次踩到,見 docs/PLAN.md D46。
+NO_DETECTION_SCORE = -1e6
+
 
 @dataclass
 class RuleThresholds:
@@ -57,7 +64,7 @@ def window_score(arrays: dict[str, np.ndarray], thresholds: RuleThresholds) -> f
 
     valid = ~(np.isnan(v_y) | np.isnan(omega) | np.isnan(theta) | np.isnan(rho) | np.isnan(hip_height))
     if not valid.any():
-        return float("-inf")
+        return NO_DETECTION_SCORE
 
     trigger_mask = valid & ((v_y > thresholds.v_y_threshold) | (np.abs(omega) > thresholds.omega_threshold))
     if not trigger_mask.any():

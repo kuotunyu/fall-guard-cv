@@ -96,15 +96,23 @@ XGBoost 用 54 維視窗統計特徵，9 個基礎特徵 × 6 種統計量，在
 
 > **台灣模型生態觀察**：pose 關鍵點偵測目前找不到台製開源模型可對照，國際生態已很成熟，台灣社群能量較集中在語言模型與特定領域；VLM 端也還沒有能對照 Gemini 多模態品質的本土公開選項，故此環節仍用 `GEMINI_MODEL`。
 
+**兩家實測對照**：拿 `events/` 現有 12 張真實事件截圖，讓 `GEMINI_MODEL` 與 `OPENAI_MODEL` 各跑一次描述，24 次呼叫全數成功、沒有一次被安全過濾擋下。兩者描述品質相當，都能正確判斷姿態、環境、有無明顯外傷，也都能分辨較輕微的事件並給出較低的嚴重程度評分；`GEMINI_MODEL` 維持主力沒有問題，`OPENAI_MODEL` 的價值在於異質模型交叉驗證而非取代主力。完整併排對照見 [docs/results/vlm_comparison.md](docs/results/vlm_comparison.md)。
+
 ## 資料集與授權
 
 主要資料集是 **UR Fall Detection Dataset，簡稱 URFD**，30 段跌倒 + 40 段日常活動，即 ADL，由 Microsoft Kinect 拍攝。授權 **CC BY-NC-SA 4.0**，非商業性質，引用：
 
 > Bogdan Kwolek, Michal Kepski, "Human fall detection on embedded platform using depth maps and wireless accelerometer," *Computer Methods and Programs in Biomedicine*, 117(3), Dec 2014.
 
-官方頁面：<https://fenix.ur.edu.pl/~mkepski/ds/uf.html>。備援與跨資料集泛化測試集：Le2i / IMVIA，Kaggle 資料集代碼 `tuyenldvn/falldataset-imvia`。
+官方頁面：<https://fenix.ur.edu.pl/~mkepski/ds/uf.html>。
 
-本 repo **不重新散佈** URFD 原始影片，僅提供 [scripts/download_data.py](scripts/download_data.py) 下載腳本。
+**跨資料集泛化測試集**：**Le2i Fall Dataset**，原始資料集共 222 段影片，涵蓋 Coffee room、Home、Office、Lecture room 四種場景，320×240、25fps，Kaggle 鏡像資料集代碼 `tuyenldvn/falldataset-imvia`（授權欄位為 Unknown，依資料集自身 README 要求需引用來源論文，不聲稱有正式開源授權）：
+
+> Imen Charfi, Johel Miteran, Julien Dubois, Mohamed Atri, Rached Tourki, "Optimised spatio-temporal descriptors for real-time fall detection: comparison of SVM and Adaboost based classification," *Journal of Electronic Imaging*, 22(4), 041106, Oct 2013.
+
+本專案只用其中 **Coffee room / Home 四個場景、130 段有官方逐幀跌倒標註可驗證的影片**；Office / Lecture room 因為完全沒有標註檔案、無法驗證是否含跌倒事件，整批不採用（細節見 [docs/PLAN.md](docs/PLAN.md) D45）。
+
+本 repo **不重新散佈** URFD 或 Le2i 的原始影片，僅提供 [scripts/download_data.py](scripts/download_data.py) 下載腳本（Le2i 走 `--fallback le2i`，經 Kaggle API 下載）。
 
 ## 快速開始
 
@@ -198,6 +206,20 @@ uv run python -m fallguard.detect --source <影片路徑> --benchmark   # 量測
 ![跌倒 vs 躺床 vs 蹲下特徵曲線對照](docs/assets/error_analysis_triplet.png)
 
 三條曲線中，藍色代表躺床——其軀幹角/bbox 比/髖高最終也會逼近跌倒範圍，但**下墜速度全程未超閾值**——這是躺床與跌倒唯一可靠的判別依據。完整分析見 [docs/results/error_analysis.md](docs/results/error_analysis.md)。
+
+### 跨資料集泛化 — URFD 訓練，Le2i 純測試
+
+以上所有數字都是在 URFD 內部做交叉驗證——同一種攝影機、同一個房間。換一個完全沒看過的場景，這套系統還撐不撐得住？門檻與時間參數只用 URFD 調參，Le2i（不同攝影機、不同房間、130 段有官方逐幀標註可驗證的影片，127 段跌倒 + 3 段日常活動）完全沒被看過，也沒參與任何調參：
+
+| 指標 | 數值 | 95% CI |
+|---|---|---|
+| Sensitivity | 0.559 | [0.47, 0.64] |
+| Specificity | 0.000 | [0.00, 0.56] |
+| FP/小時 | 110.5 | — |
+
+**誠實的結論**：Sensitivity 掉到 0.56，跟 URFD 自己最差的兩折（P4=0.67、P5=0.50）差不多量級，還在可以接受的範圍；但 Specificity 崩到 0，3 段日常活動全部誤報。**可能原因**：URFD 折內調參後 `confirm_seconds` 只有 0.3 秒——這是因應上方「事件級指標」提到的 URFD 片段過短問題而調出來的極短值，套到 Le2i 上等於「只要姿態有 0.3 秒看起來像躺平就通報」，門檻低到 Le2i 影片裡任何一個蹲下、彎腰的瞬間都可能被誤判。這不是「模型學壞了」，是**跨資料集測試直接沿用評估用的極短確認秒數**本來就不合理——本專案實際部署預設 `confirm_seconds=10s`（見「即時偵測」一節），而不是這裡拿去測 Le2i 的評估值 0.3s，真實使用情境不會這麼敏感。
+
+Specificity 的信賴區間 [0.00, 0.56] 也提醒：3 段日常活動樣本太少，0% 這個數字本身變異區間極寬，不代表「這套系統在任何新場景下都會全部誤報」，只能說「用評估用的極短確認秒數直接套到新場景是危險的」。完整數字見 [docs/results/cross_dataset.md](docs/results/cross_dataset.md)；Le2i 來源見「資料集與授權」。
 
 ## 隱私設計
 

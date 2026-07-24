@@ -1,12 +1,14 @@
-"""YOLO26-pose 即時推論包裝(docs/PLAN.md D2/§8.4)。居家單人場景假設,`max_det=1`(§1 非目標)。
+"""YOLO26-pose 推論包裝(docs/PLAN.md D2/§8.4)。居家單人場景假設,`max_det=1`(§1 非目標)。
 
-與 scripts/prepare_data.py 共用「權重快取到 models/pretrained/」邏輯,避免離線批次抽取
-與線上即時推論各自維護一份重複程式碼。
+`resolve_pose_weights()` 與 `extract_video_pose()` 由 scripts/prepare_data.py(URFD)與
+scripts/prepare_le2i.py(Le2i,docs/PLAN2.md Phase 7)共用,避免離線批次抽取邏輯各自維護
+一份重複程式碼而silently飄移(呼應 D18/D20 的教訓:train/eval 用不同套邏輯會飄移)。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -31,6 +33,60 @@ def resolve_pose_weights(name: str) -> str:
         downloaded.rename(cached)
         return str(cached)
     return name
+
+
+def extract_video_pose(model, video_path: Path) -> dict:
+    """對整支影片檔跑 pose 追蹤,回傳逐幀陣列;不含任何標籤資訊——標籤語意因資料集而異
+    (URFD 用逐幀 CSV、Le2i 用 fall 起訖幀標註),由呼叫端在這份陣列之上自行套用。
+
+    回傳 dict 含 xyn(T,17,2)/conf(T,17)/bbox_xywh(T,4)/track_id(T,)/fps(float)/
+    timestamps(T,),T 為總幀數。追蹤參數(quantize/max_det/tracker)與 detect.py 的
+    即時推論刻意保持同一套,避免離線抽取與線上推論的行為不一致。
+    """
+    import cv2
+
+    xyn_list: list[np.ndarray] = []
+    conf_list: list[np.ndarray] = []
+    bbox_list: list[np.ndarray] = []
+    track_ids: list[int] = []
+
+    results = model.track(
+        str(video_path),
+        stream=True,
+        device=0,
+        quantize=16,
+        max_det=1,
+        tracker="bytetrack.yaml",
+        persist=True,
+        verbose=False,
+    )
+    for r in results:
+        if r.keypoints is not None and len(r.keypoints) > 0:
+            xyn_list.append(r.keypoints.xyn[0].cpu().numpy())
+            conf_list.append(r.keypoints.conf[0].cpu().numpy())
+            bbox_list.append(r.boxes.xywh[0].cpu().numpy())
+            tid = int(r.boxes.id[0].item()) if r.boxes.id is not None else -1
+            track_ids.append(tid)
+        else:
+            xyn_list.append(np.full((17, 2), np.nan, dtype=np.float32))
+            conf_list.append(np.full((17,), np.nan, dtype=np.float32))
+            bbox_list.append(np.full((4,), np.nan, dtype=np.float32))
+            track_ids.append(-1)
+
+    # 用 cv2 直接讀原始 fps(比 track 結果的 speed 欄位可靠)
+    cap = cv2.VideoCapture(str(video_path))
+    real_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    cap.release()
+
+    T = len(xyn_list)
+    return {
+        "xyn": np.stack(xyn_list).astype(np.float32),
+        "conf": np.stack(conf_list).astype(np.float32),
+        "bbox_xywh": np.stack(bbox_list).astype(np.float32),
+        "track_id": np.array(track_ids, dtype=np.int32),
+        "fps": np.float32(real_fps),
+        "timestamps": (np.arange(T, dtype=np.float32) / real_fps),
+    }
 
 
 @dataclass

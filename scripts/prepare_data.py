@@ -38,6 +38,8 @@ from pathlib import Path
 
 import numpy as np
 
+from fallguard.pose import extract_video_pose, resolve_pose_weights
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 URFD_DIR = REPO_ROOT / "data" / "raw" / "urfd"
 OUT_DIR = REPO_ROOT / "data" / "processed"
@@ -46,25 +48,6 @@ FALL_COUNT = 30
 ADL_COUNT = 40
 LABEL_SENTINEL = -128  # raw_label 找不到對應 CSV 幀時的填值(域外值,{-1,0,1} 之外)
 POSE_MODEL_NAME = "yolo26m-pose.pt"
-WEIGHTS_CACHE_DIR = REPO_ROOT / "models" / "pretrained"
-
-
-def resolve_pose_weights(name: str) -> str:
-    """回傳權重本機路徑;首次執行會觸發 ultralytics 自動下載(落在 CWD),下載後搬進
-    models/pretrained/(已 gitignore)避免權重散落在 repo 根目錄。"""
-    WEIGHTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cached = WEIGHTS_CACHE_DIR / name
-    if cached.exists():
-        return str(cached)
-
-    from ultralytics import YOLO
-
-    YOLO(name)  # 觸發下載到 CWD
-    downloaded = REPO_ROOT / name
-    if downloaded.exists():
-        downloaded.rename(cached)
-        return str(cached)
-    return name  # 找不到就讓呼叫端照原樣處理(ultralytics 會再嘗試一次)
 
 
 def list_videos() -> list[tuple[str, str]]:
@@ -86,47 +69,9 @@ def load_labels(kind: str) -> dict[str, dict[int, int]]:
 
 def extract_one(model, video_id: str, kind: str, labels: dict[int, int]) -> dict:
     path = URFD_DIR / f"{video_id}-cam0.mp4"
+    data = extract_video_pose(model, path)
 
-    xyn_list: list[np.ndarray] = []
-    conf_list: list[np.ndarray] = []
-    bbox_list: list[np.ndarray] = []
-    track_ids: list[int] = []
-
-    results = model.track(
-        str(path),
-        stream=True,
-        device=0,
-        quantize=16,
-        max_det=1,
-        tracker="bytetrack.yaml",
-        persist=True,
-        verbose=False,
-    )
-    fps = None
-    for r in results:
-        if fps is None:
-            fps = float(r.speed.get("fps", 0)) or None  # 保底,下面用 orig video fps 覆蓋
-
-        if r.keypoints is not None and len(r.keypoints) > 0:
-            xyn_list.append(r.keypoints.xyn[0].cpu().numpy())
-            conf_list.append(r.keypoints.conf[0].cpu().numpy())
-            bbox_list.append(r.boxes.xywh[0].cpu().numpy())
-            tid = int(r.boxes.id[0].item()) if r.boxes.id is not None else -1
-            track_ids.append(tid)
-        else:
-            xyn_list.append(np.full((17, 2), np.nan, dtype=np.float32))
-            conf_list.append(np.full((17,), np.nan, dtype=np.float32))
-            bbox_list.append(np.full((4,), np.nan, dtype=np.float32))
-            track_ids.append(-1)
-
-    # 用 cv2 直接讀原始 fps(比 track 結果的 speed 欄位可靠)
-    import cv2
-
-    cap = cv2.VideoCapture(str(path))
-    real_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    cap.release()
-
-    T = len(xyn_list)
+    T = len(data["xyn"])
     raw_label = np.full((T,), LABEL_SENTINEL, dtype=np.int8)
     label_present = np.zeros((T,), dtype=bool)
     for i in range(T):
@@ -135,18 +80,11 @@ def extract_one(model, video_id: str, kind: str, labels: dict[int, int]) -> dict
             raw_label[i] = labels[frame_num]
             label_present[i] = True
 
-    return {
-        "xyn": np.stack(xyn_list).astype(np.float32),
-        "conf": np.stack(conf_list).astype(np.float32),
-        "bbox_xywh": np.stack(bbox_list).astype(np.float32),
-        "track_id": np.array(track_ids, dtype=np.int32),
-        "raw_label": raw_label,
-        "label_present": label_present,
-        "fps": np.float32(real_fps),
-        "timestamps": (np.arange(T, dtype=np.float32) / real_fps),
-        "video_id": video_id,
-        "kind": kind,
-    }
+    data["raw_label"] = raw_label
+    data["label_present"] = label_present
+    data["video_id"] = video_id
+    data["kind"] = kind
+    return data
 
 
 def main() -> None:
@@ -179,8 +117,6 @@ def main() -> None:
 
     ok = 0
     fail: list[str] = []
-    low_coverage: list[str] = []
-    detection_rates: list[float] = []
     t0 = time.time()
 
     for i, (vid, kind) in enumerate(videos, start=1):
@@ -207,17 +143,30 @@ def main() -> None:
 
         det_rate = float(np.mean(~np.isnan(data["xyn"][:, 0, 0]))) * 100
         cov_rate = float(np.mean(data["label_present"])) * 100
-        detection_rates.append(det_rate)
-        if cov_rate < 50:
-            low_coverage.append(f"{vid}(覆蓋率 {cov_rate:.0f}%)")
-
         print(f"[{i}/{len(videos)}] {vid} OK  幀數={len(data['xyn'])}  偵測率={det_rate:.1f}%  標籤覆蓋率={cov_rate:.1f}%")
         ok += 1
 
     elapsed = time.time() - t0
+
+    # 摘要統計一律從磁碟上實際存在的 npz 重新讀取,不用迴圈內累加——分批跑(--limit 測試過
+    # 的影片在正式全量跑時被「已存在,略過」)會讓迴圈內累加漏算那幾支(見 docs/PLAN.md D45,
+    # prepare_le2i.py 實測踩到同一個坑後回頭一併修正這裡)。
+    detection_rates: list[float] = []
+    low_coverage: list[str] = []
+    for vid, _ in videos:
+        out_path = OUT_DIR / f"{vid}.npz"
+        if not out_path.exists():
+            continue
+        with np.load(out_path) as d:
+            det_rate = float(np.mean(~np.isnan(d["xyn"][:, 0, 0]))) * 100
+            cov_rate = float(np.mean(d["label_present"])) * 100
+            detection_rates.append(det_rate)
+            if cov_rate < 50:
+                low_coverage.append(f"{vid}(覆蓋率 {cov_rate:.0f}%)")
+
     print()
     print("=== 關鍵點抽取摘要 ===")
-    print(f"成功:{ok}/{len(videos)}  失敗:{len(fail)}  耗時:{elapsed:.0f}s")
+    print(f"成功:{ok}/{len(videos)}  失敗:{len(fail)}  耗時(本次執行):{elapsed:.0f}s")
     if detection_rates:
         print(f"平均偵測率:{np.mean(detection_rates):.1f}%(最低 {np.min(detection_rates):.1f}%)")
     if low_coverage:
