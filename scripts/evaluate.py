@@ -53,19 +53,28 @@ TUNE_CONFIRM_SECONDS_GRID = [0.3, 0.5, 0.8, 1.0, 1.5]
 
 
 class VideoData:
-    __slots__ = ("video_id", "kind", "features", "raw_label", "label_present", "raw_timestamps")
+    __slots__ = ("video_id", "kind", "features", "raw_label", "label_present", "raw_timestamps", "has_ambiguous_label")
 
-    def __init__(self, video_id, kind, features, raw_label, label_present, raw_timestamps):
+    def __init__(self, video_id, kind, features, raw_label, label_present, raw_timestamps, has_ambiguous_label=True):
         self.video_id = video_id
         self.kind = kind
         self.features = features
         self.raw_label = raw_label
         self.label_present = label_present
         self.raw_timestamps = raw_timestamps
+        # URFD 官方標籤是 -1/0/1 三值(0=躺姿判定的模糊過渡帶);Le2i 只有 0/1 兩值(0=明確的跌倒區間外)。
+        # 兩者對「0」的語意不同,window_ground_truth() 靠這個旗標分辨要不要把「只含 0」的視窗當歧義剔除。見 D48。
+        self.has_ambiguous_label = has_ambiguous_label
 
 
-def load_all_videos(processed_dir: Path = PROCESSED_DIR) -> dict[str, VideoData]:
-    """預設讀 URFD 的 data/processed/;Phase 7 傳 LE2I_PROCESSED_DIR 讀 Le2i 的另一批 npz。"""
+def load_all_videos(processed_dir: Path = PROCESSED_DIR, has_ambiguous_label: bool | None = None) -> dict[str, VideoData]:
+    """預設讀 URFD 的 data/processed/;Phase 7 傳 LE2I_PROCESSED_DIR 讀 Le2i 的另一批 npz。
+
+    has_ambiguous_label 未指定時,依 processed_dir 是否為 LE2I_PROCESSED_DIR 自動判斷(URFD=True、
+    Le2i=False);必要時可手動覆寫。細節見 VideoData.has_ambiguous_label / window_ground_truth()。
+    """
+    if has_ambiguous_label is None:
+        has_ambiguous_label = processed_dir != LE2I_PROCESSED_DIR
     out: dict[str, VideoData] = {}
     for npz_path in sorted(processed_dir.glob("*.npz")):
         with np.load(npz_path) as d:
@@ -75,7 +84,7 @@ def load_all_videos(processed_dir: Path = PROCESSED_DIR) -> dict[str, VideoData]
             kind = str(d["kind"])
             video_id = str(d["video_id"])
         features = compute_features(xyn, conf, bbox, raw_timestamps)
-        out[video_id] = VideoData(video_id, kind, features, raw_label, label_present, raw_timestamps)
+        out[video_id] = VideoData(video_id, kind, features, raw_label, label_present, raw_timestamps, has_ambiguous_label)
     return out
 
 
@@ -94,7 +103,13 @@ def load_splits(protocol: str) -> list[dict]:
 
 
 def window_ground_truth(video: VideoData, start_t: float, end_t: float) -> int | None:
-    """含 ≥1 幀 label=1 ⇒ 正例;全 -1(可能混 0)⇒ 負例;只含 0 ⇒ 剔除。ADL 一律負例(D12)。"""
+    """含 ≥1 幀 label=1 ⇒ 正例。ADL 一律負例(D12)。
+
+    fall 影片「只含 0」的視窗如何判定,依資料集標籤語意而定(D48)：
+    URFD(has_ambiguous_label=True)的 0 是官方三值標籤(-1/0/1)裡「躺姿判定的模糊過渡帶」,視為歧義予以剔除;
+    只有全 -1(可能混 0)才是明確負例。
+    Le2i(has_ambiguous_label=False)只有 0/1 兩值,0 就是明確的「跌倒區間外」,直接算負例、不剔除。
+    """
     if video.kind != "fall":
         return 0
     mask = (video.raw_timestamps >= start_t) & (video.raw_timestamps <= end_t) & video.label_present
@@ -103,7 +118,7 @@ def window_ground_truth(video: VideoData, start_t: float, end_t: float) -> int |
         return None
     if (present == 1).any():
         return 1
-    if (present == 0).all():
+    if video.has_ambiguous_label and (present == 0).all():
         return None
     return 0
 
@@ -248,6 +263,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
     specificity = None
     specificity_ci = None
     fp_per_hour = None
+    adl_total_hours = None
     if adl_ids:  # D15:P3/P4/P5 折沒有 adl test 樣本,specificity 留 None(不可算)
         confirmed_adl = 0
         total_hours = 0.0
@@ -261,6 +277,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
         true_negatives = len(adl_ids) - confirmed_adl
         specificity_ci = wilson_interval(true_negatives, len(adl_ids))
         fp_per_hour = (confirmed_adl / total_hours) if total_hours > 0 else float("nan")
+        adl_total_hours = total_hours  # FP/小時的分母,供報告呈現樣本時長脈絡用(D48)
 
     return {
         "n_fall": len(fall_ids),
@@ -270,6 +287,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
         "event_specificity": specificity,
         "event_specificity_ci": specificity_ci,
         "false_alarms_per_hour": fp_per_hour,
+        "adl_total_hours": adl_total_hours,
         "algo_delay_s_mean": float(np.mean(algo_delays)) if algo_delays else None,
         "alert_delay_s_mean": float(np.mean(alert_delays)) if alert_delays else None,
         "n_delay_samples": len(alert_delays),
@@ -384,6 +402,8 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
         "",
         "## 事件級指標(文獻預設 vs 折內調參後)",
         "",
+        "FP/小時分母＝ADL 影片總時長（不含 fall 影片）。",
+        "",
         "### 文獻預設(v_y>2.0、θ>60°、FALLING 逾時 1.0s)",
         "",
         "| 折 | fall 段數 | adl 段數 | Sensitivity | Sensitivity 95% CI | Specificity | Specificity 95% CI | FP/小時 | 演算法延遲(s) | 告警延遲(s) |",
@@ -426,6 +446,11 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
         "**更關鍵的發現**：即使放寬逾時窗、成功進入 ON_GROUND(25/30 段),進入後到影片結束的剩餘時長全部 <2.0 秒(中位數僅 0.77 秒)——"
         "URFD 片段短 + 本管線判定「已躺平」偏晚,使 D11 原訂的評估用 N=2s 對這批資料系統性過嚴(文獻預設事件級 Sensitivity 恆為 0)。"
         "故 `confirm_seconds` 也納入折內調參範圍(grid {0.3,0.5,0.8,1.0,1.5}s),不再視為固定的評估值,此發現連帶更新 D11。",
+        "",
+        "**局限**：`TUNE_CONFIRM_SECONDS_GRID` 的候選範圍(0.3–1.5s)是根據 URFD 全部 30 段 fall 影片"
+        "(涵蓋每折未來的 test 影片)的探索性分析定案,非嚴格巢狀 CV；`tune_fsm_timing()` 選最終值時"
+        "只用 train_ids,但候選邊界本身已隱含全資料集資訊。佐證：P1-P5 五折最終全部選中同一組邊界值"
+        "(1.5s/0.3s),顯示這個邊界對結果有實質影響，可能讓 Sensitivity 有輕微樂觀偏誤。",
         "",
         "**LOSO 折指標可用性不對稱（D15）**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 折的 test 集同時含 fall+adl,"
         "可算完整 Sensitivity+Specificity;P3/P4/P5 折的 test 集只有 fall,Specificity/FP 標 N/A,不可跟 P1/P2 折平均後當完整指標呈現。",
@@ -481,7 +506,8 @@ def write_cross_report(result: dict) -> Path:
         "只報事件級指標，不報視窗級：Le2i 的視窗級標籤語意（哪些幀算跌倒中）跟 URFD "
         "是否完全對等，還沒有像事件級（整段影片是否判定跌倒）那樣經過同等程度的驗證。",
         "",
-        f"URFD(train)：{result['n_train_videos']} 段。Le2i(test)：{result['n_test_videos']} 段。",
+        f"URFD(train)：{result['n_train_videos']} 段。Le2i(test)：{result['n_test_videos']} 段"
+        f"（{e.get('n_fall', 0)} 段跌倒 + {e.get('n_adl', 0)} 段日常活動）。",
         "",
         "## 事件級指標（套用 URFD 調參後的門檻，Wilson 95% 信賴區間見 docs/PLAN2.md Phase 5）",
         "",
@@ -491,6 +517,17 @@ def write_cross_report(result: dict) -> Path:
         f"| Specificity | {_fmt(e.get('event_specificity'))} | {_fmt_ci(e.get('event_specificity_ci'))} |",
         f"| FP/小時 | {_fmt(e.get('false_alarms_per_hour'))} | — |",
         "",
+    ]
+    adl_hours = e.get("adl_total_hours")
+    if adl_hours and adl_hours > 0:
+        extrap = 1.0 / adl_hours
+        lines += [
+            f"**FP/小時分母說明**：分母＝ADL 影片總時長（不含 fall 影片），此處僅 {e.get('n_adl', 0)} 段共 "
+            f"{adl_hours * 3600:.1f} 秒，外推倍數約 {extrap:.0f}×，數字不具統計穩定性，解讀請以 Specificity "
+            "及其信賴區間為準。",
+            "",
+        ]
+    lines += [
         f"調參後參數（只在 URFD train 上搜尋）：v_y={th['v_y_threshold']}、θ={th['theta_threshold']}°、"
         f"falling_timeout_s={th['falling_timeout_s']}s、confirm_seconds={th['confirm_seconds']}s。",
         "",

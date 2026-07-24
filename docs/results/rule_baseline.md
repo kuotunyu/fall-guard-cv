@@ -16,6 +16,8 @@
 
 ## 事件級指標(文獻預設 vs 折內調參後)
 
+FP/小時分母＝ADL 影片總時長（不含 fall 影片）。
+
 ### 文獻預設(v_y>2.0、θ>60°、FALLING 逾時 1.0s)
 
 | 折 | fall 段數 | adl 段數 | Sensitivity | Sensitivity 95% CI | Specificity | Specificity 95% CI | FP/小時 | 演算法延遲(s) | 告警延遲(s) |
@@ -39,6 +41,8 @@
 **Wilson score 95% 信賴區間（Phase 5，docs/PLAN2.md）**：每折的測試影片數很少（P3/P4/P5 折各只有 6 段 fall），Sensitivity/Specificity 只是點估計，務必搭配 CI 解讀——CI 越寬代表這個數字越不穩固，不是模型表現不好，是樣本量本來就小。視窗級 F1 不附 CI：F1 沒有封閉解公式，要用 bootstrap 重抽樣才能估，這個資料量下投入產出比不高，暫不做。
 
 **重要發現（D16）**：文獻預設的 `FALLING→ON_GROUND` 1.0 秒逾時窗對本資料集(YOLO26-pose bbox + URFD 攝影機視角)偏緊,實測 30 段 fall 中 23 段在「已確認倒地」期間內存在同時滿足 θ>60°/ρ>1.0/髖高<0.5 三條件的瞬間,但常發生在觸發後 1.0–1.5 秒左右。**更關鍵的發現**：即使放寬逾時窗、成功進入 ON_GROUND(25/30 段),進入後到影片結束的剩餘時長全部 <2.0 秒(中位數僅 0.77 秒)——URFD 片段短 + 本管線判定「已躺平」偏晚,使 D11 原訂的評估用 N=2s 對這批資料系統性過嚴(文獻預設事件級 Sensitivity 恆為 0)。故 `confirm_seconds` 也納入折內調參範圍(grid {0.3,0.5,0.8,1.0,1.5}s),不再視為固定的評估值,此發現連帶更新 D11。
+
+**局限**：`TUNE_CONFIRM_SECONDS_GRID` 的候選範圍(0.3–1.5s)是根據 URFD 全部 30 段 fall 影片(涵蓋每折未來的 test 影片)的探索性分析定案,非嚴格巢狀 CV；`tune_fsm_timing()` 選最終值時只用 train_ids,但候選邊界本身已隱含全資料集資訊。佐證：P1-P5 五折最終全部選中同一組邊界值(1.5s/0.3s),顯示這個邊界對結果有實質影響，可能讓 Sensitivity 有輕微樂觀偏誤。
 
 **LOSO 折指標可用性不對稱（D15）**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 折的 test 集同時含 fall+adl,可算完整 Sensitivity+Specificity;P3/P4/P5 折的 test 集只有 fall,Specificity/FP 標 N/A,不可跟 P1/P2 折平均後當完整指標呈現。
 
