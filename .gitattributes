@@ -1,0 +1,3 @@
+# .githooks/ 底下是沒有副檔名的 bash script,GitHub Linguist 有時會誤判成 PowerShell/Dockerfile,
+# 明確標記語言修正 GitHub repo 頁面的 Languages 統計(不影響任何實際功能)。
+.githooks/* linguist-language=Shell

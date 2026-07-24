@@ -20,6 +20,10 @@ docs/assets/subject_sheet.png
 docs/assets/subject_compare.png
 docs/assets/adl_sample_scan.png
 
+# VLM 對照的逐圖詳細描述(Phase 6,docs/PLAN2.md D44):內容是使用者真人跌倒測試截圖的
+# 文字描述,涉及居家隱私,只留本機;公開版 docs/results/vlm_comparison.md 只留彙總結論
+docs/results/vlm_comparison_detail.md
+
 # Python
 __pycache__/
 *.pyc

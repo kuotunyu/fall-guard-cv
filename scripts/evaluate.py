@@ -4,9 +4,13 @@
 事件級:用 fsm.py 完整跑過每支測試影片,算 Event Sensitivity/Specificity/
        false alarms per hour/偵測延遲(演算法延遲、告警延遲分開報)。
 
+`--protocol cross`(Phase 7,docs/PLAN2.md):URFD 全量訓練/調參 → Le2i 純測試,
+只報事件級指標,兌現 docs/PLAN.md §7.1 P3 協定。
+
 用法：
     uv run python scripts/evaluate.py --model rule --protocol loso
     uv run python scripts/evaluate.py --model rule --protocol groupkfold
+    uv run python scripts/evaluate.py --model rule --protocol cross
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from fallguard.rules import RuleThresholds, window_arrays, window_score
 from fallguard.stats import wilson_interval
 
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
+LE2I_PROCESSED_DIR = REPO_ROOT / "data" / "processed_le2i"  # Phase 7,docs/PLAN2.md;與 URFD 分開避免混撈
 META_PATH = REPO_ROOT / "data" / "urfd_meta.csv"
 SPLITS_PATH = REPO_ROOT / "data" / "splits.json"
 RESULTS_DIR = REPO_ROOT / "docs" / "results"
@@ -59,9 +64,10 @@ class VideoData:
         self.raw_timestamps = raw_timestamps
 
 
-def load_all_videos() -> dict[str, VideoData]:
+def load_all_videos(processed_dir: Path = PROCESSED_DIR) -> dict[str, VideoData]:
+    """預設讀 URFD 的 data/processed/;Phase 7 傳 LE2I_PROCESSED_DIR 讀 Le2i 的另一批 npz。"""
     out: dict[str, VideoData] = {}
-    for npz_path in sorted(PROCESSED_DIR.glob("*.npz")):
+    for npz_path in sorted(processed_dir.glob("*.npz")):
         with np.load(npz_path) as d:
             xyn, conf, bbox = d["xyn"], d["conf"], d["bbox_xywh"]
             raw_timestamps = d["timestamps"]
@@ -455,6 +461,86 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     return out_path
 
 
+# ---------- 跨資料集泛化(Phase 7,docs/PLAN2.md;URFD 訓練 → Le2i 純測試) ----------
+
+
+def write_cross_report(result: dict) -> Path:
+    """只報事件級指標(docs/PLAN.md §7.1 P3、§7.2):Le2i 的視窗級標籤語意跟 URFD 是否
+    完全對等尚未像事件級那樣經過同等驗證,不延伸比較基礎。"""
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RESULTS_DIR / "cross_dataset.md"
+
+    e = result["event_tuned"]
+    th = result["tuned_thresholds"]
+
+    lines = [
+        "# 跨資料集泛化：URFD 訓練 → Le2i 純測試",
+        "",
+        "協定：docs/PLAN.md §7.1 P3。門檻與時間參數只用 URFD(70 段)train 資料調參，"
+        "Le2i 完全沒被看過、也沒有參與任何調參——受試者/場景/攝影機皆天然不相交。"
+        "只報事件級指標，不報視窗級：Le2i 的視窗級標籤語意（哪些幀算跌倒中）跟 URFD "
+        "是否完全對等，還沒有像事件級（整段影片是否判定跌倒）那樣經過同等程度的驗證。",
+        "",
+        f"URFD(train)：{result['n_train_videos']} 段。Le2i(test)：{result['n_test_videos']} 段。",
+        "",
+        "## 事件級指標（套用 URFD 調參後的門檻，Wilson 95% 信賴區間見 docs/PLAN2.md Phase 5）",
+        "",
+        "| 指標 | 數值 | 95% CI |",
+        "|---|---|---|",
+        f"| Sensitivity | {_fmt(e.get('event_sensitivity'))} | {_fmt_ci(e.get('event_sensitivity_ci'))} |",
+        f"| Specificity | {_fmt(e.get('event_specificity'))} | {_fmt_ci(e.get('event_specificity_ci'))} |",
+        f"| FP/小時 | {_fmt(e.get('false_alarms_per_hour'))} | — |",
+        "",
+        f"調參後參數（只在 URFD train 上搜尋）：v_y={th['v_y_threshold']}、θ={th['theta_threshold']}°、"
+        f"falling_timeout_s={th['falling_timeout_s']}s、confirm_seconds={th['confirm_seconds']}s。",
+        "",
+        "**對照**：URFD 內部 LOSO 各折事件級指標見 [rule_baseline.md](rule_baseline.md)"
+        "（注意：那是同資料集內部交叉驗證，跟這裡的跨資料集純測試不是同一種協定，"
+        "數字不可直接相減當「下滑幅度」，只能定性比較量級）。",
+    ]
+
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    return out_path
+
+
+def run_cross_evaluation(model_kind: str) -> None:
+    if model_kind != "rule":
+        print("跨資料集泛化目前只支援 --model rule（docs/PLAN2.md Phase 7 範圍未涵蓋 XGBoost 版）。")
+        sys.exit(1)
+
+    if not LE2I_PROCESSED_DIR.exists():
+        print(f"找不到 {LE2I_PROCESSED_DIR}，請先執行 scripts/prepare_le2i.py。")
+        sys.exit(1)
+
+    print("載入 URFD(train)關鍵點與特徵中...")
+    urfd_videos = load_all_videos(PROCESSED_DIR)
+    print(f"已載入 {len(urfd_videos)} 支 URFD 影片。")
+
+    print("載入 Le2i(test)關鍵點與特徵中...")
+    le2i_videos = load_all_videos(LE2I_PROCESSED_DIR)
+    if not le2i_videos:
+        print(f"{LE2I_PROCESSED_DIR} 是空的，無法評估。")
+        sys.exit(1)
+    print(f"已載入 {len(le2i_videos)} 支 Le2i 影片。")
+
+    all_videos = {**urfd_videos, **le2i_videos}
+    fold = {
+        "fold": 0,
+        "fold_name": "cross-le2i",
+        "train": list(urfd_videos.keys()),
+        "test": list(le2i_videos.keys()),
+    }
+    result = run_fold(fold, "cross", all_videos)
+    out_path = write_cross_report(result)
+    print(f"已寫入 {out_path}")
+
+    e = result["event_tuned"]
+    print(
+        f"  cross-le2i: sensitivity={_fmt(e.get('event_sensitivity'))} "
+        f"specificity={_fmt(e.get('event_specificity'))} FP/hr={_fmt(e.get('false_alarms_per_hour'))}"
+    )
+
+
 # ---------- XGBoost(Phase 3;讀 Colab 訓練回來的權重,本機重現評估) ----------
 
 
@@ -558,8 +644,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=["rule", "xgb"], default="rule")
-    parser.add_argument("--protocol", choices=["loso", "groupkfold"], default="loso")
+    parser.add_argument("--protocol", choices=["loso", "groupkfold", "cross"], default="loso")
     args = parser.parse_args()
+
+    if args.protocol == "cross":
+        run_cross_evaluation(args.model)
+        return
 
     print("載入 70 支影片的關鍵點與特徵中...")
     videos = load_all_videos()

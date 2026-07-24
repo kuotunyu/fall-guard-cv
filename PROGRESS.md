@@ -8,12 +8,12 @@
 
 ## 🧭 快速回憶區
 
-**上次收工日期**：2026-07-22
-**現在做到哪**：**主線 Phase 0-4 已發布；Phase 5-7 藍圖見 [docs/PLAN2.md](docs/PLAN2.md)（D40）。Phase 5 已完成（D41）。Phase 6（VLM 對照）程式碼就緒，尚未實際執行**：新增 `langchain-openai` 依賴（鎖 1.3.5 避免連帶升級 langchain-core，D42）、`vlm.py` 拆出 `_describe_scene_raw()`、新腳本 `scripts/compare_vlm.py`（乾跑確認會印「12 張 × 2 模型 = 24 次呼叫，估 <$0.024」，需加 `--yes` 才真的執行）。**附帶完成**：`GEMINI_MODEL` 預設值升級 `gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`（WebFetch 查證官方模型清單兩者皆 Stable，D43），.env/.env.example/config.py/README/PLAN.md 五處同步，刻意不動 CLAUDE.md（跨專案共用範本）。`uv run pytest -q` 53 passed；`check_public_text.py` 全綠。
-**下一步（開機第一件事）**：commit 本輪異動並推上 GitHub；**待使用者確認成本後**執行 `uv run python scripts/compare_vlm.py --yes`（真的呼叫 API，產出 vlm_comparison.md），完成後人工寫結論、更新 README 表3 備援欄，Phase 6 才算收尾。之後接 Phase 7（Le2i 泛化）。
-**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2，D25 稽核確認此限制屬誠實揭露、非疏漏，不阻擋發布）。
-**待使用者人工處理**：確認 `scripts/compare_vlm.py --yes` 的成本（<$0.024）可接受後告知，才會實際執行呼叫 API。
-**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，`uv sync` 即可）。clone 後要跑 `git config core.hooksPath .githooks`。公開文件不寫死本機絕對路徑（會被 hook 擋）。ultralytics 用 `quantize=16` 不用已棄用的 `half=True`（D14）。**NaN 防呆只能擋「需要當下特徵值」的判斷，純時間判斷(逾時/確認/冷卻)要照常執行**（D16 血淚教訓）。**LOSO P3/P4/P5 折沒有 ADL 測試樣本**，指標誠實標 N/A（D15）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度短影片檔會失效**，量吞吐量要用獨立單執行緒迴圈(`--benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串或 content block list，一律用 `.text` 屬性取值**（D22）。**cv2 疊字/overlay 一次性 demo 腳本容易踩的坑**：同一畫面緩衝區重複疊字時底色矩形要固定寬度、半透明底色蓋不住舊字要每次疊字用乾淨畫面複製、字級縮放公式不要寫成二次縮放會被壓到肉眼難辨（D26/D29）；ffmpeg 轉 GIF 用 `palettegen stats_mode=full + dither=sierra2_4a` 才能保住大面積純色文字不失真變色，肉眼驗收要看「轉出來的 GIF」不是轉檔前的 mp4（D28）；畫面上顯示 FPS 用滑動視窗而非累積平均才不會有暖機爬升假象，且**不同程式(demo 腳本 vs 正式 detect.py)天生速度不同，不能不配速就直接比較數字**（D30-D32）。matplotlib 中文圖表要設 `font.family` 為系統中文字型（msjh.ttc）。
+**上次收工日期**：2026-07-24
+**現在做到哪**：**主線 Phase 0-4 + 後續增強 Phase 5-7（[docs/PLAN2.md](docs/PLAN2.md)）全部完成**。使用者離開電腦期間授權自行做到底（唯一限制：不 git push）。Phase 5 信賴區間、Phase 6 VLM 對照皆已完成（D41-D44，細節見上次記錄）。**Phase 7（Le2i 跨資料集泛化，D45/D46）**：實地下載盤點後發現只有 130 段（非原估 ~191）有標註可驗證，Office/Lecture_room 無標註整批排除；新增 `prepare_le2i.py`（共用 `pose.py::extract_video_pose()`，不重造抽取邏輯）、`evaluate.py --protocol cross`；**過程中撞見一個 URFD 從未觸發過的真 bug**（`rules.py` 的 `-inf` 分數讓 sklearn PR-AUC 崩潰，Le2i 較嚴苛的偵測條件第一次踩到）已修正為有限值哨兵，`diff` 確認 URFD 既有結果零影響。跨資料集結果：Sensitivity=0.559、**Specificity=0.000**（3 段 adl 樣本太少，CI=[0,0.56]）——最可能根因是 URFD 調參後 `confirm_seconds` 只有 0.3 秒，套到 Le2i 日常活動門檻過低，已在 README 誠實記錄根因假說。順手發現並修正 `prepare_data.py`/`prepare_le2i.py` 共通的批次摘要統計漏算 bug。`uv run pytest -q` 60 passed；`check_public_text.py` 全綠；`.gitattributes` 新增修正 GitHub 語言統計誤判。**目前沒有已知的待辦事項**。
+**下一步（開機第一件事）**：檢視這一大批異動（`git status` 會看到不少新檔案，包含 `data/raw/le2i/`、`data/processed_le2i/` 但都已 .gitignore 不會被追蹤），確認滿意後自行 commit + push；`data/raw/le2i/` 解壓後約 17GB，硬碟空間夠的話可留著（方便之後重跑），不夠可自行刪除（不影響已產出的 npz 與報告）。之後若要繼續開發，PLAN.md「如果被問接下來會怎麼優化」有更多方向可選。
+**未決問題**：站姿/坐姿跌倒的逐段對照表找不到官方來源，README/評估結果已誠實註記從缺（見 PLAN.md §7.2，D25 稽核確認此限制屬誠實揭露、非疏漏，不阻擋發布）。跨資料集 Specificity=0 的根因假說（confirm_seconds 過短）尚未實際驗證修正，屬未來可選優化方向,非阻擋項。
+**待使用者人工處理**：無，git commit + push 本輪異動即可（Kaggle token 已確認可用，Phase 7 完整跑完）。
+**已知坑**：torch 必須走 cu128 index（已寫進 pyproject，`uv sync` 即可）。clone 後要跑 `git config core.hooksPath .githooks`。公開文件不寫死本機絕對路徑（會被 hook 擋）。ultralytics 用 `quantize=16` 不用已棄用的 `half=True`（D14）。**NaN 防呆只能擋「需要當下特徵值」的判斷，純時間判斷(逾時/確認/冷卻)要照常執行**（D16 血淚教訓）。**LOSO P3/P4/P5 折沒有 ADL 測試樣本**，指標誠實標 N/A（D15）。**1-slot 即時佇列(丟舊幀設計)拿去測固定長度短影片檔會失效**，量吞吐量要用獨立單執行緒迴圈(`--benchmark`，D21)。**VLM 回應的 `.content` 可能是純字串或 content block list，一律用 `.text` 屬性取值**（D22）。**cv2 疊字/overlay 一次性 demo 腳本容易踩的坑**：同一畫面緩衝區重複疊字時底色矩形要固定寬度、半透明底色蓋不住舊字要每次疊字用乾淨畫面複製、字級縮放公式不要寫成二次縮放會被壓到肉眼難辨（D26/D29）；ffmpeg 轉 GIF 用 `palettegen stats_mode=full + dither=sierra2_4a` 才能保住大面積純色文字不失真變色，肉眼驗收要看「轉出來的 GIF」不是轉檔前的 mp4（D28）；畫面上顯示 FPS 用滑動視窗而非累積平均才不會有暖機爬升假象，且**不同程式(demo 腳本 vs 正式 detect.py)天生速度不同，不能不配速就直接比較數字**（D30-D32）。matplotlib 中文圖表要設 `font.family` 為系統中文字型（msjh.ttc）。**任何要進公開 repo 的檔案，若內容是「描述使用者真實個人資料/居家測試」的產出（如 VLM 描述、標註輔助圖），先問自己「這是抽象事實揭露、還是具體敘事式描述」——前者可公開、後者要拆到本機限定檔案（D44）**，不要預設「決策記錄已經公開過這件事」就代表逐項細節都能公開。
 
 ## 📜 Phase 日誌（append-only）
 
@@ -149,3 +149,16 @@
   - `uv run python scripts/check_public_text.py` → 全綠
 - 決策連結：PLAN.md D25（稽核方法與兩個真缺口修正）。
 - **本輪 git commit 由使用者自行執行**。
+
+### Phase 5-7：後續增強收尾（2026-07-22～07-24 完成）
+
+- 主線發布後使用者問「哪些地方再多做效益大」，提出並獲同意做三項：Phase 5 事件級指標信賴區間、Phase 6 VLM 描述品質對照、Phase 7 Le2i 跨資料集泛化，藍圖獨立成 [docs/PLAN2.md](docs/PLAN2.md)（D40）。
+- **Phase 5**：新增 `src/fallguard/stats.py::wilson_interval()`，`evaluate.py` 事件級表格加 95% CI 欄；README 不加表格欄，只加白話提醒段落（避開表格擠版風險）。`rule_baseline.md` 改版前後 `diff` 為零，只新增 CI 欄。決策連結：D41。
+- **Phase 6**：新增 `langchain-openai` 依賴（鎖版本避免連帶升級 langchain-core）；`vlm.py` 拆出 `_describe_scene_raw()`，`describe_scene()` 加可選 model/provider 參數（零參數呼叫行為不變）；`scripts/compare_vlm.py` 對 `events/` 12 張真實截圖實測，24 次呼叫全數成功。**中途修正隱私問題**：初版把逐圖描述直接寫進公開檔案，使用者表示居家測試的具體細節不想公開，改成 detail(本機限定)+ 公開彙總版兩份檔案，腳本本身也同步改成預設這樣拆分。附帶完成：`GEMINI_MODEL` 升級到 `gemini-3.5-flash-lite`（WebFetch 查證官方模型清單後才換，非憑印象）。決策連結：D42-D44。
+- **Phase 7**（使用者授權在其離開電腦期間自行完成到底，唯一限制不執行 git push）：實地下載 Le2i 後盤點，發現只有 130 段（非原估 ~191）有標註可驗證，Office/Lecture_room 無標註整批排除，不編造 ground truth；把 pose 抽取邏輯抽成 `pose.py::extract_video_pose()` 共用給 URFD 和 Le2i 兩邊（用重抽 fall-01 逐欄比對確認重構未改變 URFD 既有行為）；`evaluate.py` 加 `--protocol cross`。**過程中撞見一個 URFD 從未觸發過的真 bug**：`rules.py::window_score()` 對全視窗無偵測的情況回傳 `float("-inf")`，Le2i 較嚴苛的偵測條件第一次觸發，導致 sklearn PR-AUC 計算崩潰；改成有限值哨兵常數，`diff` 確認 URFD 既有結果零影響。跨資料集結果 Sensitivity=0.559、Specificity=0.000（3 段 adl 樣本太少，CI 極寬），README 誠實記錄根因假說（URFD 調參後 `confirm_seconds=0.3s` 套到 Le2i 門檻過低）。順手發現並修正 `prepare_data.py`/`prepare_le2i.py` 共通的批次抽取摘要統計漏算 bug。決策連結：D45-D46。
+- 驗證證據（2026-07-24 實測）：
+  - `uv run pytest -q` → `60 passed`（新增 `tests/test_stats.py` 8 項、`tests/test_vlm.py` +2 項、`tests/test_prepare_le2i.py` 7 項）
+  - `uv run python scripts/check_public_text.py` → 全綠
+  - `diff` 前後對照確認 `rule_baseline.md`（URFD LOSO 數字）在 pose.py 重構、rules.py 修正兩次改動中皆完全不變
+  - Le2i 全量抽取 130/130 成功，耗時 434s，平均偵測率 96.4%
+- **本輪 git commit/push 由使用者自行執行**。

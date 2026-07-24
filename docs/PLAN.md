@@ -77,6 +77,9 @@
 | D41 | 2026-07-22 | **Phase 5（事件級指標信賴區間）完成，見 [PLAN2.md](PLAN2.md) Phase 5**：新增 `src/fallguard/stats.py::wilson_interval()`（手寫 Wilson score 公式，不加套件依賴）——**放在 `src/fallguard/` 而非原規劃的 `scripts/evaluate.py`**，因為 `scripts/` 不是可安裝套件、既有測試從不直接 import 裡面的函式，放進 `src/fallguard/` 才符合專案既有的可測試模式。`evaluate.py::event_level_metrics()` 為 Sensitivity/Specificity 各算一次 Wilson 95% CI（true negative 計數用於 Specificity），`write_report()` 兩個事件級表格各加兩欄呈現。**視窗級 F1 刻意不加 CI**：F1 沒有封閉解、要 bootstrap 重抽樣，這個資料量下投報比低。README **不加表格欄位**，只在事件級表格下方加一句「樣本量提醒」白話段落指向 rule_baseline.md——因為只有 `docs/results/rule_baseline.md` 的細節表格變寬，README 的緊湊表格完全沒動，從根本上避開 D35 那種窄欄擠壓風險，不需要動用截圖驗證流程 | `tests/test_stats.py` 新增 8 項：0/6→[0.00,0.39]、6/6→[0.61,1.00]、5/6→[0.44,0.97](人工試算對照)、n=0、4 組邊界通用性檢查；`uv run pytest -q` 51 passed；`diff` 改版前後 `rule_baseline.md` 確認 F1/Sensitivity/Specificity/延遲數字逐格一致，只新增 CI 欄；`check_public_text.py` 全綠 |
 | D42 | 2026-07-23 | **Phase 6（VLM 描述品質對照）程式碼與依賴就緒，見 [PLAN2.md](PLAN2.md) Phase 6**：新增 `langchain-openai` 依賴——**刻意鎖 `>=1.3.5,<1.4.0`**：PyPI 最新版 1.4.0 要求 `langchain-core>=1.5.0`，會連帶把目前鎖定的 `langchain-core 1.4.9` 升級，牽動既有 Gemini 路徑；1.3.5 明確要求 `langchain-core<2.0.0,>=1.4.9`，剛好卡在目前已裝的版本上，`uv sync` 後驗證 `langchain-core`/`langchain`/`langchain-google-genai` 三者版本皆未變動。`vlm.py` 拆出 `_describe_scene_raw()`（不吞例外的核心邏輯）與 `describe_scene()`（生產路徑，包一層 try/except 轉 FALLBACK_TEXT，呼叫端 `detect.py` 零改動）；`_build_model()`/`describe_scene()` 加可選 `model`/`provider` 參數，零參數呼叫時維持跟改動前完全相同的呼叫方式（避免既有測試的 monkeypatch 因新增必要參數而炸掉——第一版實作漏了這點，被既有測試當場抓到並修正）。新腳本 `scripts/compare_vlm.py`：預設只印成本估算不執行，需明確加 `--yes` 才真的呼叫 API（原計畫想用互動式 `input()` 確認，但這支腳本會由 AI 透過工具呼叫執行、無法回應互動式提示，改用旗標門檻更穩妥）；直接呼叫 `_describe_scene_raw()`（而非 `describe_scene()`）取得真實失敗原因（安全過濾/網路錯誤/其他），比生產路徑統一吞掉的 FALLBACK_TEXT 更有診斷價值 | `tests/test_vlm.py` 新增 2 項（帶參數呼叫正確轉呼叫 `init_chat_model`、不帶參數呼叫方式不變），既有 5 項不改仍全綠；`uv run pytest -q` 53 passed；乾跑 `uv run python scripts/compare_vlm.py`（無 `--yes`）確認正確印出「12 張圖 × 2 模型 = 24 次呼叫，估計 < $0.024」且未呼叫任何 API；`check_public_text.py` 全綠 |
 | D43 | 2026-07-23 | **`GEMINI_MODEL` 預設值升級：`gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`**：使用者提議換成「最新的」lite 模型，先用 WebFetch 查證 Google 官方模型清單頁（<https://ai.google.dev/gemini-api/docs/models>）而非憑印象或使用者說法直接採信——確認兩者皆列為 Stable（非 preview/deprecated），`gemini-3.5-flash-lite` 是目前最新一代 lite 級模型（曾一度被「Gemini 3.5 新功能」頁的摘要誤導成「不存在」，追加查證官方模型總表才確認是真的存在且穩定，只是那篇 changelog 頁沒特別提到這個變體）。三處預設值同步更新：`.env`、`.env.example`、`src/fallguard/config.py`；README 表3 與 PLAN.md §4/§5 的對應說明文字同步更新。**刻意不修改 CLAUDE.md**（跨多個作品集專案共用的範本，不因單一專案換模型而改，沿用 D33 的處理原則），僅在本專案 Decision Log 記錄此例外 | WebFetch <https://ai.google.dev/gemini-api/docs/models> 確認 `gemini-3.5-flash-lite`/`gemini-3.1-flash-lite` 皆為 Stable；`grep -rl "gemini-3.1-flash-lite"` 確認全部 6 處引用（.env/.env.example/CLAUDE.md/PLAN.md/README.md/config.py）僅 CLAUDE.md 刻意不動，其餘 5 處皆已更新一致 |
+| D44 | 2026-07-23 | **Phase 6 VLM 對照實際執行完成，但公開檔案的隱私設計臨時修正**：`scripts/compare_vlm.py --yes` 對 `events/` 12 張真人跌倒測試截圖各跑 `GEMINI_MODEL`/`OPENAI_MODEL` 一次描述，24 次呼叫全數成功、無一次被安全過濾擋下。**初版把逐圖描述文字直接寫進 `docs/results/vlm_comparison.md` 準備公開**，使用者看過後明確表示「你在自己家裡跌倒測試」這部分不想公開——雖然這個事實本身早在 D24 就已公開揭露，但 D24 只是一句抽象陳述，逐圖描述文字（例如具體房間家具、身體姿勢的敘事式描寫）暴露的細節程度完全不同，使用者的隱私界線劃在「抽象事實可以公開，具體逐圖敘述不行」。修正：拆成兩份檔案——`docs/results/vlm_comparison_detail.md`（逐圖完整內容，加進 `.gitignore`，只留本機）與 `docs/results/vlm_comparison.md`（公開版，只留自動統計的成功/失敗次數 + 一段人工/AI 讀過 detail 後才能寫的彙總分析，分析內容本身經檢視不含具體居家細節，只講模型行為的抽象比較）。同步修改 `compare_vlm.py` 本身讓這個拆分成為腳本的預設行為，避免未來重跑時同一個問題再犯——公開版的文字分析段落腳本只留佔位提示，客觀統計數字才自動填入 | `git status --short` 確認 `vlm_comparison_detail.md` 完全不出現在追蹤範圍（`.gitignore` 生效）；`uv run pytest -q` 53 passed；`check_public_text.py` 全綠；README 表3 備援欄與 `docs/results/vlm_comparison.md` 皆已改為彙總版措辭 |
+| D45 | 2026-07-24 | **Phase 7（Le2i 跨資料集泛化）資料管線就緒，見 [PLAN2.md](PLAN2.md) Phase 7**：使用者授權在其離開電腦期間自行完成到底（僅禁止 git push，避免 GitHub Contributors 多人頭）。實地下載 Kaggle `tuyenldvn/falldataset-imvia`（9.37GB）後盤點，實際版面跟計畫階段的網路二手資訊有落差，故**不照計畫假設硬做，重新盤點才動手**：6 個場景資料夾中只有 Coffee_room_01/02、Home_01/02 有 `Annotation_files`(Coffee_room_02 底下實際打成 `Annotations_files`，多一個 s，原樣保留非筆誤)；Office/Lecture_room 完全沒有任何標註檔案，**整批排除，不編造 ground truth**。有標註的 4 個資料夾合計 130 段：127 段含跌倒(前兩行是純數字的起訖幀表頭)、3 段不含跌倒(沒有表頭，直接是逐幀資料)——這個「無跌倒檔案省略表頭」的格式細節官方 README 完全沒提，是實測 `video (26).txt` 才發現的。舊版 .avi 容器的 cv2 `CAP_PROP_FRAME_COUNT` 抽查 3 段皆比實際解碼幀數少報 1，故不信任該欄位，一律以 YOLO 實際解碼幀數為準逐幀對齊。**共用邏輯**：把 `prepare_data.py::extract_one()` 的 pose 追蹤主邏輯抽成 `src/fallguard/pose.py::extract_video_pose()`（跟即時推論用的 `PoseEstimator` 分開，這是批次影片檔版本），`prepare_data.py` 改呼叫共用函式，用 `--limit 1 --force` 重抽 fall-01 並跟改動前的 npz 逐欄比對確認 100% 位元級相同，確認重構未改變 URFD 既有行為；`prepare_le2i.py` 呼叫同一份函式產出 Le2i 版 npz(schema 與 URFD 相同，放 `data/processed_le2i/`，跟 URFD 分開避免 `load_all_videos()` 混撈)。`scripts/evaluate.py` 加 `--protocol cross`：`load_all_videos()` 加目錄參數、新增 `run_cross_evaluation()`/`write_cross_report()`，`run_fold()` 本身完全不用改——它原本就是協定無關的通用函式，證實了 PLAN2.md 規劃階段的判斷。順手發現並修正 `prepare_data.py`/`prepare_le2i.py` 共通的一個小 bug：批次抽取摘要統計(平均偵測率、fall/adl 分類數)在迴圈內累加，若影片先前已用 `--limit` 測試過而在正式全量跑時被「已存在,略過」，累加會漏算那幾支——改成迴圈跑完後統一從磁碟上的 npz 重新讀取統計，兩支腳本都修 | `du -sh` 確認下載 17GB(解壓後)；`ls`/`wc -l` 逐一核對 4 個場景資料夾的影片數與標註數；`uv run pytest -q` 60 passed(新增 `tests/conftest.py` 讓測試能 import `scripts/` 模組 + `tests/test_prepare_le2i.py` 7 項，含 3 項合成標註檔測試、4 項需要真實資料存在才跑的 schema/label 測試)；`prepare_le2i.py --limit 3` 先小量驗證 fall/adl 兩種路徑皆正確才跑全量；全量抽取 130/130 成功、耗時 434s、平均偵測率 96.4%(最低 42.7%)；`check_public_text.py` 全綠 |
+| D46 | 2026-07-24 | **Phase 7 跨資料集評估首次執行即撞見一個從未在 URFD 上出現過的真 bug，已修正並產出最終結果**：`evaluate.py --protocol cross` 第一次執行時在算 PR-AUC 時崩潰(`ValueError: Input contains infinity`)——追查到 `rules.py::window_score()` 對「整個 1.5 秒視窗完全沒偵測到人」的情況刻意回傳 `float("-inf")`(語意上「這視窗絕不可能是跌倒」)，但 sklearn 的 `average_precision_score` 不接受非有限值。這個分支在 URFD 的 70 支影片上從未被觸發過(否則早就在既有評估中炸過)，Le2i 部分影片的偵測條件較嚴苛(整段視窗無偵測)才第一次踩到——**這正是「換資料集會找到訓練資料集掩蓋掉的邊界案例」的具體例證，本身就是跨資料集測試的價值所在**。修正：把 `-inf` 改成模組層級具名常數 `NO_DETECTION_SCORE = -1e6`(有限值，`classify_window()` 的 `>0` 判斷結果不變)，用 `--limit`/`--force` 重抽 fall-01 + 重跑 LOSO 評估，`diff` 改動前後的 `rule_baseline.md` 確認完全無變化，證實這個分支確實從未被 URFD 資料觸發、修正不影響任何既有數字。**修正後的跨資料集結果**：Sensitivity=0.559 [0.47,0.64]、Specificity=0.000 [0.00,0.56]、FP/小時=110.5。Specificity 崩盤但信賴區間極寬(只有 3 段 adl 樣本)；深入分析發現最可能的根因是**折內調參後的 `confirm_seconds` 只有 0.3 秒**(這是為了因應 URFD 片段過短才調出來的極端值，見上方 D16)，套到 Le2i 的日常活動(蹲下/彎腰)上等於「0.3 秒像躺平就通報」，門檻過低——這不是模型能力不足，是**評估用的極短確認秒數本不該被誤用成跨資料集測試的判定門檻**，真實部署預設 `confirm_seconds=10s` 敏感度低很多。README 新增「跨資料集泛化」小節誠實記錄這個發現(含根因假說，不只是丟數字)；「資料集與授權」補上 Le2i 正式引用(Charfi et al. 2013, JEI)與非正式授權狀態(Kaggle 鏡像 license 欄位為 Unknown，依資料集自身要求引用來源論文) | `uv run python scripts/evaluate.py --model rule --protocol cross` 產出 `docs/results/cross_dataset.md`；`diff` 確認 `rule_baseline.md`(URFD LOSO)在 `rules.py` 修正前後完全一致；`uv run pytest -q` 60 passed；`check_public_text.py` 全綠 |
 
 ## 3. 系統架構
 
@@ -148,7 +151,7 @@ stateDiagram-v2
 | LLM 框架 | LangChain 1.x | langchain 1.3.14 / langchain-google-genai 4.2.7 | docs.langchain.com（1.x messages / google_genai integration） |
 | ML | XGBoost（+ GRU 選做） | 版本以 uv lock 為準；Colab 端 pin 同版 | D3 |
 | 資料集（主） | URFD | 30 fall + 40 ADL，cam0，CC BY-NC-SA 4.0 | fenix.ur.edu.pl/~mkepski/ds/uf.html（實測 200） |
-| 資料集（備/泛化） | Le2i / IMVIA | Kaggle `tuyenldvn/falldataset-imvia`（原始 ~221 段；附 frame 級標註可用子集 ~191 段） | 官方 UBFC 頁與 Kaggle 鏡像均可用（實測 200） |
+| 資料集（備/泛化） | Le2i / IMVIA | Kaggle `tuyenldvn/falldataset-imvia`（原始 222 段；本專案實際採用有標註可驗證的 130 段，127 fall + 3 adl，見 D45） | 官方 UBFC 頁與 Kaggle 鏡像均可用（實測 200）；D45 實地下載驗證確認 |
 | 通報 | Discord Webhook | `DISCORD_WEBHOOK_URL`（.env） | docs.discord.com/developers/resources/webhook |
 
 > 台灣模型對照說明：本專案 CV 主體（pose 偵測）目前無台製開源模型可對照；VLM 端仍依 CLAUDE.md 以 `GEMINI_MODEL` 為主。此生態觀察寫進 README 選型章節。
@@ -164,11 +167,16 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 ├── .github/workflows/test.yml       # CI：push/PR 自動 uv sync + pytest（D37/D38）
 ├── docs/
 │   ├── PLAN.md                      # 本檔
+│   ├── PLAN2.md                     # Phase 5-7 後續增強藍圖（D40）
 │   ├── assets/                      # demo.gif、特徵曲線圖、受試者對照圖等
-│   └── results/                     # rule_baseline.md、xgb_baseline.md、error_analysis.md
+│   └── results/                     # rule_baseline.md、xgb_baseline.md、error_analysis.md、
+│                                     # vlm_comparison.md、cross_dataset.md（Phase 7，見下）
 ├── data/                            # 大部分 .gitignore；例外見 D13
 │   ├── raw/urfd/                    # mp4 ×70 + urfall CSV ×2（.gitignore，可重下載）
+│   ├── raw/le2i/                    # Coffee_room_01/02、Home_01/02、Office、Lecture_room
+│   │                                 # （.gitignore，可重下載；Phase 7，D45）
 │   ├── processed/                   # *.npz 關鍵點序列（.gitignore，可重跑 prepare_data.py 重現）
+│   ├── processed_le2i/              # Le2i 版 *.npz，與 URFD 分開存放（.gitignore，Phase 7）
 │   ├── urfd_meta.csv                # 人工標註：subject_id + ADL 動作類別（D13：進 git，無法重現）
 │   └── splits.json                  # LOSO / GroupKFold 切分定義（D13：進 git，評估協定稽核依據）
 ├── models/                          # 權重 .gitignore；README 指向 HF 下載
@@ -176,35 +184,43 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 ├── notebooks/fall-guard-cv_train_xgboost_colab.ipynb
 ├── scripts/
 │   ├── download_data.py             # URFD 下載（斷點續傳）+ --fallback le2i
-│   ├── prepare_data.py              # 影片 → npz 關鍵點序列（本機 GPU）
+│   ├── prepare_data.py              # URFD 影片 → npz 關鍵點序列（本機 GPU）
+│   ├── prepare_le2i.py              # Le2i 影片 → npz 關鍵點序列，schema 與 URFD 相同（Phase 7，D45）
 │   ├── annotate_urfd.py             # 互動式 GUI：標 subject_id + ADL 動作類別（D6）
 │   ├── subject_sheet.py / compare_subjects.py / peek_video.py  # 標註輔助小工具（受試者對照/放大比對/純播放）
 │   ├── make_splits.py               # 產出 data/splits.json（LOSO + GroupKFold）
 │   ├── prepare_train_export.py      # npz → 54 維視窗統計特徵，打包供 Colab 訓練
-│   ├── evaluate.py                  # --model {rule,xgb} --protocol {loso,groupkfold}
+│   ├── evaluate.py                  # --model {rule,xgb} --protocol {loso,groupkfold,cross}
+│   ├── compare_vlm.py               # GEMINI_MODEL vs OPENAI_MODEL 描述品質對照（Phase 6，D42/D44）
 │   ├── error_analysis.py            # 規則式 baseline 誤報分析（§1.3）
 │   ├── upload_to_hf.py              # XGBoost 權重/模型卡上傳 Hugging Face（D19）
 │   └── check_public_text.py         # 公開文案守門（Phase 0 自既有專案移植）
 ├── src/fallguard/                   # src layout（hatchling packages=["src/fallguard"]）
 │   ├── config.py                    # .env 載入、金鑰 mapping（D7）、模型字串
-│   ├── pose.py                      # YOLO26-pose 包裝（stream、track、quantize=16）
+│   ├── pose.py                      # YOLO26-pose 包裝：即時推論 + extract_video_pose()
+│   │                                 # 批次抽取共用邏輯（Phase 7，D45，URFD/Le2i 共用一份）
 │   ├── features.py                  # 特徵定義（第 7.3 節）+ 滑動視窗
 │   ├── rules.py                     # 規則式判定（閾值邏輯）
 │   ├── fsm.py                       # 狀態機（第 8.1 節），純函式可測
-│   ├── vlm.py                       # init_chat_model + base64 content block
+│   ├── stats.py                     # Wilson score 信賴區間（Phase 5，D41）
+│   ├── vlm.py                       # init_chat_model + base64 content block；describe_scene()
+│   │                                 # 可選 model/provider 參數供 Phase 6 對照用（D42）
 │   ├── notify.py                    # Discord webhook multipart + 429 處理
 │   └── detect.py                    # CLI：python -m fallguard.detect --source {path|0}（含 RollingFps、--benchmark）
 │   （D20：不建立 classifier.py——XGBoost 推論邏輯已在 evaluate.py，即時偵測只用規則式 FSM，避免無呼叫端的重造）
 ├── tests/                           # 扁平佈局
+│   ├── conftest.py                  # 讓測試能 import scripts/ 內的模組（Phase 7，D45）
 │   ├── test_features.py             # 合成關鍵點 → 已知角度/速度
 │   ├── test_fsm.py                  # 狀態機純邏輯（含「慢速躺下不告警」）
 │   ├── test_splits.py               # 防洩漏守門：fold 群組交集為空
 │   ├── test_notify.py               # mock webhook、429 retry
-│   ├── test_vlm.py                  # VLM 失敗 fallback、`.text` 正規化行為
+│   ├── test_vlm.py                  # VLM 失敗 fallback、`.text` 正規化行為、model/provider 參數轉發
+│   ├── test_stats.py                # wilson_interval 邊界與已知值（Phase 5，D41）
 │   ├── test_prepare_data.py         # npz schema；資料不存在時 skip
+│   ├── test_prepare_le2i.py         # 標註解析 + npz schema；資料不存在時 skip（Phase 7，D45）
 │   ├── test_docs.py                 # README/PLAN 必含章節守門
 │   └── test_smoke.py
-├── .env / .env.example / .gitignore / .python-version(3.11)
+├── .env / .env.example / .gitignore / .gitattributes / .python-version(3.11)
 ├── LICENSE                          # MIT
 ├── PROGRESS.md                      # 進度追蹤（root，第一眼可見）
 ├── README.md
@@ -295,7 +311,7 @@ fall-guard-cv/                       # git repo root（GitHub 名同）
 
 - **URFD frame label 規約**：`-1` 未倒 / `0` 跌倒過渡 / `1` 已倒地（此為 raw CSV 值）。**kind 覆寫規則（D12,已由 Phase 1 實測確認）**：只有 `kind=="fall"` 的影片,其 label 才代表真正的跌倒事件；`kind=="adl"` 影片一律視為負例(非跌倒),即使該幀 raw_label==1(常見於 ADL 中的躺床片段,是姿態幾何特徵而非事件標籤)。視窗標籤（僅在 fall 影片內計算正例）：含 ≥1 幀 label=1 或涵蓋 0→1 轉移 ⇒ 正例；全 -1 ⇒ 負例；只含 0 ⇒ 剔除（過渡幀語意不明確，文獻慣例）。ADL 影片的所有視窗一律負例,其中 raw_label==1 的視窗(躺床)是誤報分析(§1.3)的關鍵困難負樣本。事件級 ground-truth 區間 = [第一個 0 幀, 躺地段結束]，過渡幀在此層完整使用,僅適用於 fall 影片。
 - **視窗級**：precision / recall / F1 / **PR-AUC**（類別不平衡下必附）+ 混淆矩陣。
-- **事件級**：Event Sensitivity（30 段 fall 中狀態機到達 CONFIRMED 的比例）、Event Specificity（40 段 ADL 誤觸段數）、**false alarms per hour**（分母 = ADL 總時長；URFD 時數短需註明信賴區間寬，用 Le2i 標註子集補足（~191 段：143 fall / 48 ADL；Phase 1 下載後以實際檔數校正，記入 Decision Log））。
+- **事件級**：Event Sensitivity（30 段 fall 中狀態機到達 CONFIRMED 的比例）、Event Specificity（40 段 ADL 誤觸段數）、**false alarms per hour**（分母 = ADL 總時長；URFD 時數短需註明信賴區間寬，Phase 7 用 Le2i 標註子集補足跨資料集視角，實際採用 130 段：127 fall / 3 adl，見 D45）。
   - **LOSO 折的指標可用性不對稱（D15）**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 折的 test 集同時含 fall+adl，可算完整 sensitivity+specificity；**P3/P4/P5 折的 test 集只有 fall（0 段 adl），只能算 sensitivity，不能算 specificity/FP**。report 時三折不可直接平均掉這個差異——P1/P2 折標「完整指標」，P3/P4/P5 折標「僅 sensitivity（該折無 ADL 樣本）」，README 誠實揭露此限制。
 - **偵測延遲分開報**：(a) 演算法延遲 = GT 撞擊幀 → 進入 ON_GROUND；(b) 告警延遲 = 撞擊 → CONFIRMED（含刻意設計的 N 秒）。混報是常見方法論錯誤。
 - **分層報告**：URFD 跌倒 15 段站姿 / 15 段坐姿——坐姿跌倒質心下降幅度與速度天然較小，是規則 baseline 的預期弱點，sensitivity 必須分兩列報。
