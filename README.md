@@ -5,7 +5,7 @@
 [![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)](https://github.com/astral-sh/uv)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-這是我用電腦視覺技術做的居家跌倒偵測練習專案：平時完全在本機運行、鏡頭畫面不上傳,只在真的判定跌倒時才通報家人。動機來自對台灣高齡社會獨居長者照護議題的關注,也想藉這個題目練習一次從資料前處理、模型評估到誠實揭露限制的完整流程——這是我的個人學習/作品集專案,不是產品。
+這是我用電腦視覺技術做的居家跌倒偵測練習專案：平時完全在本機運行、鏡頭畫面不上傳,只在真的判定跌倒時才通報家人。動機來自對台灣高齡社會獨居長者照護議題的關注,也想藉這個題目練習一次從資料前處理、模型評估到誠實揭露限制的完整流程——這是我的個人學習專案,不是產品。
 
 > ✅ Phase 0-7 已全部完成,含統計信賴區間、VLM 描述品質對照、URFD→Le2i 跨資料集泛化驗證。開發過程與決策記錄見 [PROGRESS.md](PROGRESS.md)、[docs/PLAN.md](docs/PLAN.md)。
 
