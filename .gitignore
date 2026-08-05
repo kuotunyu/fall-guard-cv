@@ -1,6 +1,13 @@
 # 金鑰與私人檔案
 .env
-.claude/private/
+PROGRESS.md
+.claude/
+CLAUDE.md
+interview*.md
+INTERVIEW_PREP.md
+*.private.md
+docs/PLAN*.md
+.agents/
 
 # 虛擬環境
 .venv/
