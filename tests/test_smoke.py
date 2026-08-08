@@ -20,5 +20,6 @@ def test_settings_defaults():
 
 def test_repo_layout():
     assert (REPO_ROOT / "docs" / "PLAN.md").exists()
-    assert (REPO_ROOT / "PROGRESS.md").exists()
+    # PROGRESS.md is intentionally gitignored (private working log, same convention
+    # as .env across this portfolio) — not required to exist in a public checkout.
     assert (REPO_ROOT / ".env.example").exists()

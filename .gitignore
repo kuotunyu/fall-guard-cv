@@ -6,7 +6,10 @@ CLAUDE.md
 interview*.md
 INTERVIEW_PREP.md
 *.private.md
-docs/PLAN*.md
+# docs/PLAN.md is tracked on purpose: tests/test_docs.py requires it publicly
+# (Decision Log + Phase sections). docs/PLAN2.md stays private — its D44 entry
+# narrates a real at-home fall-test privacy decision the user asked not to publish.
+docs/PLAN2.md
 .agents/
 
 # 虛擬環境

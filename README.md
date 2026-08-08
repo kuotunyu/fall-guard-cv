@@ -119,7 +119,7 @@ SHAP 分析證實特徵極度集中於 `y_std_min` 與 `hip_height_min`，驗證
 
 ---
 
-## 評測結果與誤報分析
+## 評估結果（評測結果與誤報分析）
 
 ### 1. 視窗級混淆矩陣 (1.5s 滑動視窗, 5 折加總)
 
@@ -148,9 +148,13 @@ SHAP 分析證實特徵極度集中於 `y_std_min` 與 `hip_height_min`，驗證
 
 ---
 
-## 資料集與合規授權
+## 資料集與授權（合規細節）
 
-1. **UR Fall Detection Dataset (URFD)**：包含 30 段跌倒與 40 段日常活動影片，遵循 **CC BY-NC-SA 4.0** 授權。
+1. **UR Fall Detection Dataset (URFD)**：包含 30 段跌倒與 40 段日常活動影片，遵循 **CC BY-NC-SA 4.0** 授權。引用：
+
+   > Bogdan Kwolek, Michal Kepski, "Human fall detection on embedded platform using depth maps and wireless accelerometer," *Computer Methods and Programs in Biomedicine*, 117(3), Dec 2014.
+
+   官方頁面：<https://fenix.ur.edu.pl/~mkepski/ds/uf.html>。
 2. **Le2i Fall Dataset**：包含 Coffee room 與 Home 場景共 130 段逐幀標註影片，用於跨場域泛化評測。
 
 ---
@@ -188,7 +192,7 @@ uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benc
 
 ---
 
-## 隱私防護機制
+## 隱私設計（防護機制）
 
 - **常態零上傳**：Pose 骨架計算與狀態機推論 100% 於本機 GPU 執行。
 - **事件驅動觸發**：僅在進入 `CONFIRMED` 狀態時截取關鍵影格送交 VLM。
@@ -196,14 +200,14 @@ uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benc
 
 ---
 
-## 算力開銷與成本分析
+## 成本估算（算力開銷）
 
 - **本機推論**：RTX 4090 + YOLO26m-pose 平均運算速度為 **42.8 FPS**，無雲端費用。
 - **VLM API 呼叫**：採用 `gemini-3.5-flash-lite`，單次告警成本低於 **$0.001 USD**。
 
 ---
 
-## 依賴套件規格
+## 關鍵套件版本（依賴規格）
 
 | 套件名稱 | 鎖定版本 | 用途說明 |
 |---|---|---|
@@ -215,6 +219,7 @@ uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benc
 
 ---
 
-## 授權與聲明
+## 開發紀錄與授權
 
-程式碼採用 [MIT License](LICENSE)。URFD 資料集遵循 CC BY-NC-SA 4.0 授權，XGBoost 權重託管於 Hugging Face [`steven0226/fall-guard-cv-xgboost`](https://huggingface.co/steven0226/fall-guard-cv-xgboost)。
+- **開發紀錄**：每個 Phase 驗收都以 git tag `phase-N` 標記，完整決策脈絡見 [docs/PLAN.md](docs/PLAN.md) 的 Decision Log。
+- **授權**：程式碼採用 [MIT License](LICENSE)。URFD 資料集遵循 CC BY-NC-SA 4.0 授權，XGBoost 權重託管於 Hugging Face [`steven0226/fall-guard-cv-xgboost`](https://huggingface.co/steven0226/fall-guard-cv-xgboost)。
