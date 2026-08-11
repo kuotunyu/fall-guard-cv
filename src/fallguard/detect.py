@@ -1,11 +1,11 @@
-"""跌倒偵測即時推論 CLI(docs/PLAN.md §8.4)。
+"""跌倒偵測即時推論 CLI。
 
 三執行緒:
 - capture thread:`cv2.VideoCapture` 連續讀取,1-slot 佇列只留最新幀(webcam 驅動有
   內部緩衝,直接 read 會累積延遲,官方常見作法是丟棄舊幀只處理最新的)
 - main thread:`model.track()` 推論 → 特徵計算 → 狀態機 → overlay → imshow。特徵計算
   重用 features.py 對一段滑動緩衝區重跑既有的批次邏輯,不另外維護一份增量版特徵計算
-  (避免評估與部署兩套特徵邏輯飄移,見 D18 的教訓)
+  （避免評估與執行期維護兩套會漂移的特徵邏輯）
 - alert worker(`ThreadPoolExecutor(max_workers=1)`):CONFIRMED/冷卻後升級告警時,
   非同步呼叫 VLM→Discord,不阻塞主偵測迴圈
 
@@ -37,7 +37,7 @@ from .pose import PoseEstimator
 
 EVENTS_DIR = REPO_ROOT / "events"
 
-# BGR(cv2 色彩順序),對應 docs/PLAN.md §3 狀態顏色表(綠/黃/橙/紅/紅)
+# BGR（cv2 色彩順序）：綠、黃、橙、紅、紅
 STATE_COLORS = {
     State.NORMAL: (0, 255, 0),
     State.FALLING: (0, 255, 255),
@@ -133,7 +133,7 @@ def save_snapshot(frame: np.ndarray, tag: str) -> Path:
 
 
 def run_alert(confirm_path: Path, escalation: bool) -> None:
-    """alert worker 執行緒的工作內容:VLM 描述(LOCAL_ONLY 時跳過)→ Discord 送出(D8/§8.2/§8.3)。"""
+    """Alert worker：VLM 描述（LOCAL_ONLY 時跳過）→ Discord 送出。"""
     from . import notify, vlm
 
     if settings.local_only:
@@ -149,7 +149,7 @@ def run_alert(confirm_path: Path, escalation: bool) -> None:
 
 
 def print_cost_estimate() -> None:
-    print("=== VLM 呼叫成本估算(docs/PLAN.md 第 11 章) ===")
+    print("=== VLM 呼叫資訊 ===")
     print(f"模型:{settings.gemini_model}")
     print("每次通報 ≈ 1 張 720p JPEG + 短 prompt + ~150 token 輸出,單次成本遠低於 $0.001")
     hourly_cap = 3600 / settings.alert_cooldown_seconds if settings.alert_cooldown_seconds > 0 else float("inf")
@@ -187,7 +187,7 @@ def overlay_frame(
     # 底色矩形尺寸只依「畫面高度」縮放(不依當下文字內容),避免兩個問題:
     # (1) 固定絕對像素在低解析度來源(例如 demo 用的 URFD 240p 半格畫面)上佔比過大,
     #     喧賓奪主;(2) 同一畫面緩衝區連續疊字時,矩形若依文字動態縮小會蓋不到
-    #     前一幀較寬的殘留文字(見 D23 demo 錄製時的教訓)。特徵讀數併成一行,
+    #     前一幀較寬的殘留文字。特徵讀數併成一行，
     #     大幅縮短原本 3 行文字佔用的高度。
     # 字級各自獨立設下限(不是共用同一個 scale 再往下乘)——例如 0.42*scale 這種
     # 二次縮放,在 scale 已經是下限的窄畫面上會把字體壓到肉眼幾乎讀不出來。
@@ -198,7 +198,7 @@ def overlay_frame(
 
     # 底色寬度用「最長預期字樣」在該字級下量出來的實際寬度決定(不是量當下這幀的文字),
     # 字級只依畫面尺寸而定、跟目前顯示什麼內容無關,所以每幀量出來的寬度都一樣寬,
-    # 不會有 D23 那種「換一幀文字變短、矩形跟著縮小蓋不到殘留字」的問題。
+    # 不會發生「換一幀文字變短、矩形跟著縮小蓋不到殘留字」的問題。
     # 左上(狀態)/右上(特徵+FPS)是兩個獨立的資訊框,寬度各自封頂在畫面寬度的 48%,
     # 確保中間永遠留有間隔——不然文字長一點,兩個底色矩形會頭尾相接,看起來像
     # 融成一整條怪異的通欄黑帶(使用者實測回饋)。
@@ -235,7 +235,7 @@ def overlay_frame(
 
 def run_benchmark(source: str, pose: PoseEstimator, fsm_config: FSMConfig, min_frames: int = 300) -> None:
     """單執行緒逐幀跑,不透過 1-slot 佇列/capture thread——短片會被那套「只留最新幀」設計瞬間
-    讀完丟棄,量不到真實吞吐量(見 D20:webcam 場景丟舊幀是對的,但拿它測固定長度檔案的吞吐量
+    讀完丟棄，量不到真實吞吐量（webcam 場景丟舊幀是對的，但拿它測固定長度檔案的吞吐量
     不成立)。影片放完就繞回開頭重播,湊到 `min_frames` 才停,避免短片樣本數太少導致量測不穩定。
     量測範圍含 pose 推論+特徵計算+狀態機,不含 imshow(對應 DoD『平均 FPS,目標 ≥30』)。"""
     cap = cv2.VideoCapture(source)

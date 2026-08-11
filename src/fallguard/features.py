@@ -1,4 +1,4 @@
-"""跌倒偵測特徵工程(docs/PLAN.md §7.3)。
+"""跌倒偵測特徵工程。
 
 輸入為 scripts/prepare_data.py 產出的原始關鍵點序列(xyn/conf/bbox_xywh/timestamps),
 輸出為距離無關、fps 無關的逐幀特徵,供規則式狀態機(fsm.py)與視窗分類(rules.py)使用。
@@ -17,7 +17,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 from scipy.signal import savgol_filter
 
-# COCO 17 關鍵點索引(docs/PLAN.md §3 對照表)
+# COCO 17 關鍵點索引
 NOSE = 0
 LEFT_EYE, RIGHT_EYE = 1, 2
 LEFT_EAR, RIGHT_EAR = 3, 4
@@ -312,7 +312,7 @@ def make_windows(features: FrameFeatures, window_s: float = 1.5, stride_s: float
     return windows
 
 
-# Phase 3(XGBoost)用:每個視窗的統計聚合特徵,~9 基礎特徵 × 6 統計量 = 54 維(docs/PLAN.md 第 4 章)。
+# XGBoost 使用的視窗統計聚合：9 個基礎特徵 × 6 種統計量 = 54 維。
 STAT_BASE_FEATURES = ["theta", "omega", "v_y", "rho", "drho", "head_ankle_diff", "hip_height", "y_std", "missing_rate"]
 STAT_AGGREGATES = ["mean", "std", "min", "max", "last_minus_first", "max_abs_derivative"]
 STAT_FEATURE_NAMES = [f"{base}_{agg}" for base in STAT_BASE_FEATURES for agg in STAT_AGGREGATES]

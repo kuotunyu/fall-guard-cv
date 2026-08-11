@@ -1,5 +1,5 @@
-"""跌倒判定狀態機(docs/PLAN.md §8.1)。純函式類,輸入逐幀特徵、輸出狀態+轉移日誌,
-不含任何 I/O(截圖/VLM/Discord 由 Phase 4 的 notify.py 呼叫端處理)。
+"""跌倒判定狀態機。純函式類，輸入逐幀特徵、輸出狀態與轉移日誌，
+不含任何 I/O（截圖、VLM、Discord 由 notify.py 呼叫端處理）。
 """
 
 from __future__ import annotations
@@ -32,14 +32,14 @@ class FSMConfig:
     on_ground_rho_threshold: float = 1.0
     on_ground_hip_height_threshold: float = 0.5
 
-    confirm_seconds: float = 2.0  # N;評估用 2s,部署用 10s(D11,由呼叫端依情境指定)
+    confirm_seconds: float = 2.0  # 文獻對照預設；執行期由呼叫端依情境指定
     lying_jitter_tolerance_s: float = 0.5  # 允許姿勢抖動的最長間斷
 
     recovery_theta_threshold: float = 40.0  # 進 60°/出 40° 遲滯
     recovery_hip_height_threshold: float = 0.7
     recovery_hold_s: float = 2.0
     # 恢復計時在特徵缺失(遮擋)期間允許的最長空白——超過就重新起算,不能讓遮擋時間也算進
-    # 「已恢復直立」,否則等於在沒有持續視覺證據下撤銷告警(D49)。獨立於 lying_jitter_tolerance_s:
+    # 「已恢復直立」，否則等於在沒有持續視覺證據下撤銷告警。獨立於 lying_jitter_tolerance_s：
     # 躺姿確認寧可容忍稍長抖動,恢復判定則該更保守(寧可誤判為未恢復,不該誤判為已恢復)。
     recovery_jitter_tolerance_s: float = 0.5
 
@@ -122,7 +122,7 @@ class FallStateMachine:
         return theta < cfg.recovery_theta_threshold and hip_height > cfg.recovery_hip_height_threshold
 
     def step(self, frame: dict) -> State:
-        """D16 修正：純時間的轉移判斷(FALLING 逾時、ON_GROUND 確認、ALERTED 冷卻/恢復)
+        """純時間的轉移判斷（FALLING 逾時、ON_GROUND 確認、ALERTED 冷卻/恢復）
         必須在特徵缺失(NaN)時仍照常檢查——否則跌倒瞬間常見的短暫遮擋會讓狀態機永久卡住
         (曾經真實發生：因為早期版本『任一特徵 NaN 就整幀跳過』,連逾時退回都被跳過,
         FALLING 狀態卡死不動,事件級 Sensitivity 因此變成 0)。只有『需要當下特徵值
@@ -187,7 +187,7 @@ class FallStateMachine:
             if self._last_lying_true_t is not None and (t - self._last_lying_true_t) > cfg.lying_jitter_tolerance_s:
                 self._lying_accum_start_t = None
             # 恢復計時同理不能讓遮擋空白時間也算數,否則等於在沒有持續視覺證據下靜默撤銷
-            # 已確認的跌倒告警(D49)——缺失時間一旦超過容忍上限,恢復計時重新起算。
+            # 已確認跌倒後，缺失時間一旦超過容忍上限，恢復計時重新起算。
             if self._last_recovery_true_t is not None and (t - self._last_recovery_true_t) > cfg.recovery_jitter_tolerance_s:
                 self._recovery_start_t = None
 

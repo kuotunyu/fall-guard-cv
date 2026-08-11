@@ -1,6 +1,6 @@
 """URFD 影片 → 關鍵點序列 .npz(本機 GPU 抽取)。
 
-依據 docs/PLAN.md D2(YOLO26-pose)/ D12(ADL label 語意) / Phase 1 DoD。
+使用 YOLO26-pose，並保留 URFD ADL label 的原始語意。
 
 每支影片輸出 data/processed/{video_id}.npz,欄位：
     xyn         (T,17,2) float32   正規化關鍵點座標;未偵測到人的幀為 NaN
@@ -14,10 +14,10 @@
     video_id    scalar   str       例如 "fall-01"
     kind        scalar   str       "fall" 或 "adl"
 
-*** 重要(D12)***：raw_label 是 URFD 官方 CSV 的「姿態是否水平」幾何特徵,
+***重要***：raw_label 是 URFD 官方 CSV 的「姿態是否水平」幾何特徵，
 不是「是否發生跌倒事件」的語意標籤。ADL 影片定義上不含跌倒事件,即使
 raw_label==1(躺姿),也絕不代表跌倒——這些是「已躺床」的困難負樣本
-(誤報分析的關鍵素材)。下游程式(Phase 2 features.py / evaluate.py)必須
+（誤報分析的關鍵素材）。下游 features.py / evaluate.py 必須
 以 kind=="fall" 且 raw_label==1 才視為正例；kind=="adl" 一律是負例,
 不論 raw_label 為何。CSV 對齊方式:frame_num(CSV,1-indexed) - 1 = 影片幀索引
 (已用 fall-01/adl-01 實測驗證,精確對齊、非模糊 ±1 容忍)。
@@ -149,7 +149,7 @@ def main() -> None:
     elapsed = time.time() - t0
 
     # 摘要統計一律從磁碟上實際存在的 npz 重新讀取,不用迴圈內累加——分批跑(--limit 測試過
-    # 的影片在正式全量跑時被「已存在,略過」)會讓迴圈內累加漏算那幾支(見 docs/PLAN.md D45,
+    # 的影片在正式全量跑時被「已存在，略過」）會讓迴圈內累加漏算那幾支，
     # prepare_le2i.py 實測踩到同一個坑後回頭一併修正這裡)。
     detection_rates: list[float] = []
     low_coverage: list[str] = []

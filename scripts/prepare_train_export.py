@@ -1,5 +1,5 @@
 """把 data/processed/*.npz 的關鍵點特徵轉成視窗統計特徵,打包成一個小檔案供上傳 Colab 訓練用
-(docs/PLAN.md Phase 3)。輸出只有數字(54 維特徵 × 標籤 × video_id),遠比原始關鍵點小,
+輸出只有數字（54 維特徵 × 標籤 × video_id），遠比原始關鍵點小，
 不含任何影像,上傳無隱私疑慮。
 
 用法：
@@ -23,7 +23,7 @@ OUT_PATH = REPO_ROOT / "data" / "export" / "xgb_windows.npz"
 
 
 def build_dataset(videos: dict[str, VideoData]) -> dict[str, np.ndarray]:
-    # D18:視窗篩選邏輯只在 evaluate.py 的 build_xgb_stat_samples 維護一份,
+    # 視窗篩選邏輯只在 evaluate.py 的 build_xgb_stat_samples 維護一份，
     # 這裡直接呼叫共用函式,不得重寫一份自己的篩選條件(曾因兩邊各自實作而 train/eval 視窗集合對不齊)。
     samples = build_xgb_stat_samples(list(videos.keys()), videos)
     X_list = [s[1] for s in samples]

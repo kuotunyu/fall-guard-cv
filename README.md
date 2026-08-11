@@ -219,7 +219,7 @@ uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benc
 
 ---
 
-## 開發紀錄與授權
+## 評估紀錄與授權
 
-- **開發紀錄**：每個 Phase 驗收都以 git tag `phase-N` 標記，完整決策脈絡見 [docs/PLAN.md](docs/PLAN.md) 的 Decision Log。
+- **評估紀錄**：完整規則式、XGBoost、錯誤分析與跨資料集結果位於 [`docs/results/`](docs/results/)。
 - **授權**：程式碼採用 [MIT License](LICENSE)。URFD 資料集遵循 CC BY-NC-SA 4.0 授權，XGBoost 權重託管於 Hugging Face [`steven0226/fall-guard-cv-xgboost`](https://huggingface.co/steven0226/fall-guard-cv-xgboost)。

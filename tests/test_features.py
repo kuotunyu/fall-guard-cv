@@ -1,4 +1,4 @@
-"""features.py 單元測試:用合成關鍵點驗證已知值(docs/PLAN.md Phase 2 DoD)。"""
+"""用合成關鍵點驗證特徵工程已知值。"""
 
 from __future__ import annotations
 

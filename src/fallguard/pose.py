@@ -1,8 +1,7 @@
-"""YOLO26-pose 推論包裝(docs/PLAN.md D2/§8.4)。居家單人場景假設,`max_det=1`(§1 非目標)。
+"""YOLO26-pose 推論包裝。居家單人場景假設，`max_det=1`。
 
 `resolve_pose_weights()` 與 `extract_video_pose()` 由 scripts/prepare_data.py(URFD)與
-scripts/prepare_le2i.py(Le2i,docs/PLAN2.md Phase 7)共用,避免離線批次抽取邏輯各自維護
-一份重複程式碼而silently飄移(呼應 D18/D20 的教訓:train/eval 用不同套邏輯會飄移)。
+scripts/prepare_le2i.py（Le2i）共用，避免離線批次抽取邏輯各自維護、默默漂移。
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ def extract_video_pose(model, video_path: Path, persist: bool = False) -> dict:
     這裡預設 False,因為批次抽取(prepare_data.py/prepare_le2i.py)在同一個 model 物件上
     對「一批互不相關的影片」逐支呼叫,不是單一連續串流,`persist=True` 會讓 ByteTrack 的
     frame_id 計數跨影片不歸零,導致每支影片(除了批次裡第一支)第一次出現的人在第一幀
-    可能因 `STrack.is_activated` 只在 `frame_id==1` 才立即為真而被整幀濾掉(見 D50)。
+    可能因 `STrack.is_activated` 只在 `frame_id==1` 才立即為真而被整幀濾掉。
     detect.py 的即時推論走的是真正的單一連續串流,`PoseEstimator.infer()` 仍用 `persist=True`。
     """
     import cv2

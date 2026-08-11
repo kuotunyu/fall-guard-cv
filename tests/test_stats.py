@@ -1,4 +1,4 @@
-"""wilson_interval 邊界與已知值測試(Phase 5,docs/PLAN2.md)。"""
+"""wilson_interval 邊界與已知值測試。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def test_wilson_interval_all_successes():
 
 
 def test_wilson_interval_known_value():
-    # 5/6 ≈ 0.833,手算過的已知值(見 docs/PLAN2.md Phase 5)
+    # 5/6 ≈ 0.833，手算過的已知值
     lo, hi = wilson_interval(5, 6)
     assert lo == pytest.approx(0.436, abs=0.01)
     assert hi == pytest.approx(0.970, abs=0.01)

@@ -1,11 +1,10 @@
-"""規則式 baseline 評估(docs/PLAN.md §7.2 / Phase 2 DoD)。
+"""規則式 baseline 評估。
 
 視窗級:precision/recall/F1/PR-AUC + 混淆矩陣(文獻預設閾值 vs 折內調參後閾值)。
 事件級:用 fsm.py 完整跑過每支測試影片,算 Event Sensitivity/Specificity/
        false alarms per hour/偵測延遲(演算法延遲、告警延遲分開報)。
 
-`--protocol cross`(Phase 7,docs/PLAN2.md):URFD 全量訓練/調參 → Le2i 純測試,
-只報事件級指標,兌現 docs/PLAN.md §7.1 P3 協定。
+`--protocol cross`：URFD 全量調參 → Le2i 純測試，只報事件級指標。
 
 用法：
     uv run python scripts/evaluate.py --model rule --protocol loso
@@ -35,19 +34,19 @@ if TYPE_CHECKING:
     import xgboost as xgb
 
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
-LE2I_PROCESSED_DIR = REPO_ROOT / "data" / "processed_le2i"  # Phase 7,docs/PLAN2.md;與 URFD 分開避免混撈
+LE2I_PROCESSED_DIR = REPO_ROOT / "data" / "processed_le2i"  # 與 URFD 分開避免混撈
 META_PATH = REPO_ROOT / "data" / "urfd_meta.csv"
 SPLITS_PATH = REPO_ROOT / "data" / "splits.json"
 RESULTS_DIR = REPO_ROOT / "docs" / "results"
 XGB_MODELS_DIR = REPO_ROOT / "models" / "xgboost"
 
-EVAL_CONFIRM_SECONDS = 2.0  # 評估用 N(D11);部署預設 N=10s 由 config.py 的 FALL_CONFIRM_SECONDS 另行套用
+EVAL_CONFIRM_SECONDS = 2.0  # 文獻預設對照；執行期預設 N=10s 由 config.py 另行套用
 
 TUNE_V_Y_GRID = [1.0, 1.5, 2.0, 2.5, 3.0]
 TUNE_THETA_GRID = [45.0, 50.0, 55.0, 60.0, 65.0, 70.0]
 TUNE_FALLING_TIMEOUT_GRID = [1.0, 1.5, 2.0, 2.5, 3.0]
-# D16 實測發現：25/25 進到 ON_GROUND 的影片,進入後剩餘時長全部 < 2.0s(中位數僅 0.77s)——
-# URFD 片段短 + 本管線判定「已躺平」偏晚,D11 原訂評估用 N=2s 對這批資料系統性過嚴,故 confirm_seconds
+# 實測發現：25/25 進到 ON_GROUND 的影片，進入後剩餘時長全部 < 2.0s（中位數 0.77s）。
+# URFD 片段短且本管線判定「已躺平」偏晚，固定 N=2s 對這批資料系統性過嚴，故 confirm_seconds
 # 也需要當作可調參數搜尋(而非視為固定值),grid 選在遠低於 2.0s 的範圍。
 TUNE_CONFIRM_SECONDS_GRID = [0.3, 0.5, 0.8, 1.0, 1.5]
 
@@ -66,12 +65,12 @@ class VideoData:
         self.label_present = label_present
         self.raw_timestamps = raw_timestamps
         # URFD 官方標籤是 -1/0/1 三值(0=躺姿判定的模糊過渡帶);Le2i 只有 0/1 兩值(0=明確的跌倒區間外)。
-        # 兩者對「0」的語意不同,window_ground_truth() 靠這個旗標分辨要不要把「只含 0」的視窗當歧義剔除。見 D48。
+        # 兩者對「0」的語意不同；此旗標決定是否把「只含 0」的視窗當歧義剔除。
         self.has_ambiguous_label = has_ambiguous_label
 
 
 def load_all_videos(processed_dir: Path = PROCESSED_DIR, has_ambiguous_label: bool | None = None) -> dict[str, VideoData]:
-    """預設讀 URFD 的 data/processed/;Phase 7 傳 LE2I_PROCESSED_DIR 讀 Le2i 的另一批 npz。
+    """預設讀 URFD 的 data/processed/；跨資料集模式改讀 Le2i 的另一批 npz。
 
     has_ambiguous_label 未指定時,依 processed_dir 是否為 LE2I_PROCESSED_DIR 自動判斷(URFD=True、
     Le2i=False);必要時可手動覆寫。細節見 VideoData.has_ambiguous_label / window_ground_truth()。
@@ -102,13 +101,13 @@ def load_splits(protocol: str) -> list[dict]:
     return splits["groupkfold"]["folds"]
 
 
-# ---------- 視窗級 ground truth(D12 kind 覆寫規則) ----------
+# ---------- 視窗級 ground truth ----------
 
 
 def window_ground_truth(video: VideoData, start_t: float, end_t: float) -> int | None:
-    """含 ≥1 幀 label=1 ⇒ 正例。ADL 一律負例(D12)。
+    """含 ≥1 幀 label=1 ⇒ 正例。ADL 一律負例。
 
-    fall 影片「只含 0」的視窗如何判定,依資料集標籤語意而定(D48)：
+    fall 影片「只含 0」的視窗如何判定，依資料集標籤語意而定：
     URFD(has_ambiguous_label=True)的 0 是官方三值標籤(-1/0/1)裡「躺姿判定的模糊過渡帶」,視為歧義予以剔除;
     只有全 -1(可能混 0)才是明確負例。
     Le2i(has_ambiguous_label=False)只有 0/1 兩值,0 就是明確的「跌倒區間外」,直接算負例、不剔除。
@@ -161,7 +160,7 @@ def build_xgb_stat_samples(video_ids: list[str], videos: dict[str, VideoData]) -
     排除條件刻意跟 `build_window_samples`(規則式分類器用,以 5 個原始特徵陣列是否全 NaN 判斷)不同——
     XGBoost 吃的是 54 維統計向量,只有在全部 9 個基礎特徵都整段缺失(向量全零)時才真的沒有可用資料,
     這也是 `prepare_train_export.py` 訓練資料採用的同一套邏輯(此函式被兩邊共用,避免 train/eval
-    視窗集合不一致——這正是 D18 發現的 bug 成因,曾經因為兩邊各自維護邏輯而各算各的)。
+    視窗集合不一致；過去曾因兩邊各自維護篩選邏輯而產生結果漂移。
     """
     samples = []
     for vid in video_ids:
@@ -259,7 +258,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
             alert_delays.append(confirmed_t - impact_t)
 
     sensitivity = confirmed_fall / len(fall_ids) if fall_ids else float("nan")
-    # Wilson score 95% CI(Phase 5,docs/PLAN2.md):小樣本折(如 P3/P4/P5 每折僅 6 段 fall)的點估計
+    # Wilson score 95% CI：小樣本 fold（如 P3/P4/P5 各僅 6 段 fall）的點估計
     # 需要搭配信賴區間解讀,不能只看單一數字。
     sensitivity_ci = wilson_interval(confirmed_fall, len(fall_ids)) if fall_ids else None
 
@@ -267,7 +266,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
     specificity_ci = None
     fp_per_hour = None
     adl_total_hours = None
-    if adl_ids:  # D15:P3/P4/P5 折沒有 adl test 樣本,specificity 留 None(不可算)
+    if adl_ids:  # P3/P4/P5 沒有 ADL test 樣本時，specificity 留 None
         confirmed_adl = 0
         total_hours = 0.0
         for vid in adl_ids:
@@ -280,7 +279,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
         true_negatives = len(adl_ids) - confirmed_adl
         specificity_ci = wilson_interval(true_negatives, len(adl_ids))
         fp_per_hour = (confirmed_adl / total_hours) if total_hours > 0 else float("nan")
-        adl_total_hours = total_hours  # FP/小時的分母,供報告呈現樣本時長脈絡用(D48)
+        adl_total_hours = total_hours  # FP/小時的分母，供報告呈現樣本時長脈絡用
 
     return {
         "n_fall": len(fall_ids),
@@ -298,7 +297,7 @@ def event_level_metrics(test_video_ids: list[str], videos: dict[str, VideoData],
 
 
 def tune_fsm_timing(train_ids: list[str], videos: dict[str, VideoData], base_config: FSMConfig) -> tuple[float, float]:
-    """聯合搜尋 falling_timeout_s 與 confirm_seconds(D16):
+    """聯合搜尋 falling_timeout_s 與 confirm_seconds：
     用 train 折的 fall 影片算 sensitivity、adl 影片算誤報數,選「sensitivity 最高、同分則誤報最少」的組合。
     """
     fall_ids = [v for v in train_ids if videos[v].kind == "fall"]
@@ -370,7 +369,7 @@ def _fmt(x, digits=3) -> str:
 
 
 def _fmt_ci(ci) -> str:
-    """格式化 Wilson score 信賴區間(Phase 5)。ci 為 None 時代表沒有樣本可算。"""
+    """格式化 Wilson score 信賴區間。ci 為 None 時代表沒有樣本可算。"""
     if ci is None:
         return "N/A"
     lo, hi = ci
@@ -384,7 +383,7 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     lines = [
         "# 規則式 Baseline 評估結果",
         "",
-        f"協定：{protocol}(docs/PLAN.md §7.1);評估用 N={EVAL_CONFIRM_SECONDS}s(D11,部署另用 N=10s)。",
+        f"協定：{protocol}；文獻預設對照使用 N={EVAL_CONFIRM_SECONDS}s，執行期預設另為 N=10s。",
         "",
         "## 視窗級指標(文獻預設閾值 vs 折內調參後閾值)",
         "",
@@ -414,7 +413,7 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     ]
     for r in fold_results:
         e = r["event_default"]
-        spec_note = "" if e["n_adl"] > 0 else "（無 adl 測試樣本,D15）"
+        spec_note = "" if e["n_adl"] > 0 else "（無 ADL 測試樣本）"
         lines.append(
             f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt_ci(e.get('event_sensitivity_ci'))} "
             f"| {_fmt(e['event_specificity'])}{spec_note} | {_fmt_ci(e.get('event_specificity_ci'))} "
@@ -423,7 +422,7 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
 
     lines += [
         "",
-        "### 折內調參後(v_y/θ 沿用視窗級調參結果;falling_timeout_s × confirm_seconds 以 train 折聯合搜尋,D16)",
+        "### 折內調參後（v_y/θ 沿用視窗級結果；falling_timeout_s × confirm_seconds 以 train fold 聯合搜尋）",
         "",
         "| 折 | fall 段數 | adl 段數 | Sensitivity | Sensitivity 95% CI | Specificity | Specificity 95% CI | FP/小時 | 演算法延遲(s) | 告警延遲(s) | 逾時/確認秒數 |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
@@ -431,7 +430,7 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     for r in fold_results:
         e = r["event_tuned"]
         th = r["tuned_thresholds"]
-        spec_note = "" if e["n_adl"] > 0 else "（無 adl 測試樣本,D15）"
+        spec_note = "" if e["n_adl"] > 0 else "（無 ADL 測試樣本）"
         lines.append(
             f"| {r['fold_name']} | {e['n_fall']} | {e['n_adl']} | {_fmt(e['event_sensitivity'])} | {_fmt_ci(e.get('event_sensitivity_ci'))} "
             f"| {_fmt(e['event_specificity'])}{spec_note} | {_fmt_ci(e.get('event_specificity_ci'))} "
@@ -440,22 +439,22 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
 
     lines += [
         "",
-        "**Wilson score 95% 信賴區間（Phase 5，docs/PLAN2.md）**：每折的測試影片數很少（P3/P4/P5 折各只有 6 段 fall），"
+        "**Wilson score 95% 信賴區間**：每折的測試影片數很少（P3/P4/P5 各只有 6 段 fall），"
         "Sensitivity/Specificity 只是點估計，務必搭配 CI 解讀——CI 越寬代表這個數字越不穩固，不是模型表現不好，是樣本量本來就小。"
         "視窗級 F1 不附 CI：F1 沒有封閉解公式，要用 bootstrap 重抽樣才能估，這個資料量下投入產出比不高，暫不做。",
         "",
-        "**重要發現（D16）**：文獻預設的 `FALLING→ON_GROUND` 1.0 秒逾時窗對本資料集(YOLO26-pose bbox + URFD 攝影機視角)偏緊,"
+        "**重要發現**：文獻預設的 `FALLING→ON_GROUND` 1.0 秒逾時窗對本資料集（YOLO26-pose bbox + URFD 攝影機視角）偏緊，"
         "實測 30 段 fall 中 23 段在「已確認倒地」期間內存在同時滿足 θ>60°/ρ>1.0/髖高<0.5 三條件的瞬間,但常發生在觸發後 1.0–1.5 秒左右。"
         "**更關鍵的發現**：即使放寬逾時窗、成功進入 ON_GROUND(25/30 段),進入後到影片結束的剩餘時長全部 <2.0 秒(中位數僅 0.77 秒)——"
-        "URFD 片段短 + 本管線判定「已躺平」偏晚,使 D11 原訂的評估用 N=2s 對這批資料系統性過嚴(文獻預設事件級 Sensitivity 恆為 0)。"
-        "故 `confirm_seconds` 也納入折內調參範圍(grid {0.3,0.5,0.8,1.0,1.5}s),不再視為固定的評估值,此發現連帶更新 D11。",
+        "URFD 片段短且本管線判定「已躺平」偏晚，使固定 N=2s 對這批資料系統性過嚴（文獻預設事件級 Sensitivity 恆為 0）。"
+        "故 `confirm_seconds` 納入 train fold 調參範圍 {0.3,0.5,0.8,1.0,1.5}s，不再視為固定評估值。",
         "",
         "**局限**：`TUNE_CONFIRM_SECONDS_GRID` 的候選範圍(0.3–1.5s)是根據 URFD 全部 30 段 fall 影片"
         "(涵蓋每折未來的 test 影片)的探索性分析定案,非嚴格巢狀 CV；`tune_fsm_timing()` 選最終值時"
         "只用 train_ids,但候選邊界本身已隱含全資料集資訊。佐證：P1-P5 五折最終全部選中同一組邊界值"
         "(1.5s/0.3s),顯示這個邊界對結果有實質影響，可能讓 Sensitivity 有輕微樂觀偏誤。",
         "",
-        "**LOSO 折指標可用性不對稱（D15）**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 折的 test 集同時含 fall+adl,"
+        "**LOSO fold 指標可用性不對稱**：ADL 只有 P1/P2 兩位受試者出現。P1、P2 的 test fold 同時含 fall 與 ADL，"
         "可算完整 Sensitivity+Specificity;P3/P4/P5 折的 test 集只有 fall,Specificity/FP 標 N/A,不可跟 P1/P2 折平均後當完整指標呈現。",
         "",
         "**站姿 vs 坐姿分層報告（§7.2 要求）**：目前找不到 URFD 官方提供的逐段「站姿跌倒/坐姿跌倒」對照表"
@@ -489,11 +488,11 @@ def write_report(protocol: str, fold_results: list[dict]) -> Path:
     return out_path
 
 
-# ---------- 跨資料集泛化(Phase 7,docs/PLAN2.md;URFD 訓練 → Le2i 純測試) ----------
+# ---------- 跨資料集泛化（URFD 調參 → Le2i 純測試） ----------
 
 
 def write_cross_report(result: dict) -> Path:
-    """只報事件級指標(docs/PLAN.md §7.1 P3、§7.2):Le2i 的視窗級標籤語意跟 URFD 是否
+    """只報事件級指標：Le2i 的視窗級標籤語意跟 URFD 是否
     完全對等尚未像事件級那樣經過同等驗證,不延伸比較基礎。"""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESULTS_DIR / "cross_dataset.md"
@@ -504,15 +503,15 @@ def write_cross_report(result: dict) -> Path:
     lines = [
         "# 跨資料集泛化：URFD 訓練 → Le2i 純測試",
         "",
-        "協定：docs/PLAN.md §7.1 P3。門檻與時間參數只用 URFD(70 段)train 資料調參，"
-        "Le2i 完全沒被看過、也沒有參與任何調參——受試者/場景/攝影機皆天然不相交。"
+        "協定：門檻與時間參數只用 URFD（70 段）資料調參，"
+        "Le2i 沒有參與任何調參；受試者、場景與攝影機皆不相交。"
         "只報事件級指標，不報視窗級：Le2i 的視窗級標籤語意（哪些幀算跌倒中）跟 URFD "
         "是否完全對等，還沒有像事件級（整段影片是否判定跌倒）那樣經過同等程度的驗證。",
         "",
         f"URFD(train)：{result['n_train_videos']} 段。Le2i(test)：{result['n_test_videos']} 段"
         f"（{e.get('n_fall', 0)} 段跌倒 + {e.get('n_adl', 0)} 段日常活動）。",
         "",
-        "## 事件級指標（套用 URFD 調參後的門檻，Wilson 95% 信賴區間見 docs/PLAN2.md Phase 5）",
+        "## 事件級指標（套用 URFD 調參後的門檻，區間採 Wilson 95% 信賴區間）",
         "",
         "| 指標 | 數值 | 95% CI |",
         "|---|---|---|",
@@ -545,7 +544,7 @@ def write_cross_report(result: dict) -> Path:
 
 def run_cross_evaluation(model_kind: str) -> None:
     if model_kind != "rule":
-        print("跨資料集泛化目前只支援 --model rule（docs/PLAN2.md Phase 7 範圍未涵蓋 XGBoost 版）。")
+        print("跨資料集泛化目前只支援 --model rule；尚未提供 XGBoost 版跨資料集流程。")
         sys.exit(1)
 
     if not LE2I_PROCESSED_DIR.exists():
@@ -581,7 +580,7 @@ def run_cross_evaluation(model_kind: str) -> None:
     )
 
 
-# ---------- XGBoost(Phase 3;讀 Colab 訓練回來的權重,本機重現評估) ----------
+# ---------- XGBoost（讀 Colab 訓練回來的權重，本機重現評估） ----------
 
 
 def load_xgb_fold_models() -> dict[str, "xgb.Booster"]:

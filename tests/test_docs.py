@@ -1,4 +1,4 @@
-"""README/PLAN 必含章節守門(docs/PLAN.md 第 5 章/第 14 章收尾清單),避免發布前漏填 TODO。"""
+"""Public documentation and repository-safety contracts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ REQUIRED_README_SECTIONS = [
     "隱私設計",
     "成本估算",
     "關鍵套件版本",
-    "開發紀錄與授權",
+    "評估紀錄與授權",
 ]
 
 
@@ -41,7 +41,7 @@ def test_readme_references_demo_gif_and_file_exists():
     gif_path = REPO_ROOT / "docs" / "assets" / "demo.gif"
     assert gif_path.exists(), "docs/assets/demo.gif 不存在"
     size_mb = gif_path.stat().st_size / (1024 * 1024)
-    assert size_mb <= 8.0, f"demo.gif 超過 8MB 上限(現為 {size_mb:.2f}MB,見 docs/PLAN.md 第 9 章)"
+    assert size_mb <= 8.0, f"demo.gif 超過 8MB 上限（現為 {size_mb:.2f}MB）"
 
 
 def test_readme_has_urfd_citation():
@@ -50,11 +50,25 @@ def test_readme_has_urfd_citation():
     assert "CC BY-NC-SA" in text, "README.md 缺少 URFD 授權標示"
 
 
-def test_plan_has_decision_log_and_phase_sections():
-    text = _read(REPO_ROOT / "docs" / "PLAN.md")
-    assert "Decision Log" in text
-    for phase_marker in ["Phase 0", "Phase 1", "Phase 2", "Phase 3", "Phase 4"]:
-        assert phase_marker in text, f"docs/PLAN.md 缺少 {phase_marker} 段落"
+def test_agent_guardrail_identifies_the_canonical_repository():
+    text = _read(REPO_ROOT / "AGENTS.md")
+    assert "https://github.com/kuotunyu/fall-guard-cv" in text
+    assert "fall-detection-pose" in text
+    assert "不得修改" in text
+
+
+def test_public_docs_do_not_depend_on_private_session_files():
+    result_paths = [
+        path
+        for path in sorted((REPO_ROOT / "docs" / "results").glob("*.md"))
+        if path.name != "vlm_comparison_detail.md"
+    ]
+    paths = [REPO_ROOT / "README.md", *result_paths]
+    forbidden = ["PROGRESS.md", "PLAN2.md", "CLAUDE.md"]
+    for path in paths:
+        text = _read(path)
+        for term in forbidden:
+            assert term not in text, f"{path.relative_to(REPO_ROOT)} 仍依賴 {term}"
 
 
 def test_ci_enforces_locked_quality_gates():

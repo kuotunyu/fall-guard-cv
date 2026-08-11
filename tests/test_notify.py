@@ -1,4 +1,4 @@
-"""notify.py 單元測試:mock Discord webhook,涵蓋成功送出/附圖/429 重送/未設定 webhook(docs/PLAN.md §8.3)。"""
+"""Mock Discord webhook，涵蓋成功送出、附圖、429 重送與未設定 webhook。"""
 
 from __future__ import annotations
 

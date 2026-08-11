@@ -1,8 +1,8 @@
 """產出 data/splits.json:P1 影片級 GroupKFold(最低防線)+ P2 受試者級 LOSO(主協定)。
 
-依據 docs/PLAN.md D6 / §7.1。GroupKFold 只需影片清單,現在就能跑;
+GroupKFold 只需影片清單即可執行；
 LOSO 需要 data/urfd_meta.csv 的人工 subject_id 標註,標註完成前會輸出
-status="pending_annotation" 並跳過,不阻塞其他 Phase 1 工作。
+status="pending_annotation" 並跳過，不阻塞其餘切分工作。
 
 用法：
     uv run python scripts/make_splits.py            # 產生/更新 data/splits.json

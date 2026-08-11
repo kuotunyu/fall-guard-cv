@@ -1,4 +1,4 @@
-"""Phase 0 冒煙測試:套件可匯入、設定有預設值、金鑰缺席時不炸。"""
+"""套件可匯入、設定有預設值，且公開 checkout 具備必要檔案。"""
 
 from fallguard.config import REPO_ROOT, settings
 
@@ -19,7 +19,6 @@ def test_settings_defaults():
 
 
 def test_repo_layout():
-    assert (REPO_ROOT / "docs" / "PLAN.md").exists()
-    # PROGRESS.md is intentionally gitignored (private working log, same convention
-    # as .env across this portfolio) — not required to exist in a public checkout.
+    assert (REPO_ROOT / "AGENTS.md").exists()
+    assert (REPO_ROOT / "README.md").exists()
     assert (REPO_ROOT / ".env.example").exists()

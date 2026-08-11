@@ -1,4 +1,4 @@
-"""rules.py 單元測試:window_score/classify_window/RuleThresholds(docs/PLAN.md §8.1)。
+"""window_score、classify_window 與 RuleThresholds 單元測試。
 
 先前完全沒有測試覆蓋(收尾複查發現)——NO_DETECTION_SCORE 的分支過去只有靠 Le2i 資料集
 才第一次被觸發(D46),本檔用合成陣列直接測,不必依賴真實資料集存在。

@@ -1,4 +1,4 @@
-"""Gemini VLM 現場描述(docs/PLAN.md D4/§8.2)。
+"""Gemini VLM 現場描述。
 
 跌倒事件確認後,對截圖做現場描述+嚴重程度評估,供 Discord 通報文字使用。
 **告警送達是安全關鍵,VLM 只是增強**:任何失敗(安全過濾擋下、網路錯誤、金鑰缺失)
@@ -22,8 +22,7 @@ FALLBACK_TEXT = "(VLM 描述暫缺)"
 def _build_model(model: str | None = None, provider: str | None = None):
     """預設(不傳參數)= 現行 Gemini 行為,呼叫端(detect.py)零改動。
 
-    `model`/`provider` 是 Phase 6(docs/PLAN2.md,VLM 描述品質對照)加的可選參數,
-    讓 scripts/compare_vlm.py 能建立 OPENAI_MODEL 的模型做對照。safety_settings 是
+    `model`/`provider` 讓 scripts/compare_vlm.py 能建立 OPENAI_MODEL 的模型做對照。safety_settings 是
     google_genai 專屬參數,只在走預設 Gemini 路徑時才帶入,OpenAI 路徑不適用。
     """
     from langchain.chat_models import init_chat_model
@@ -47,9 +46,9 @@ def _describe_scene_raw(image_path: Path, model: str | None = None, provider: st
     """實際呼叫模型的核心邏輯,失敗時直接拋出例外(不吞例外)。
 
     `describe_scene()` 包一層 try/except 把這裡的例外轉成 FALLBACK_TEXT,是生產路徑
-    (detect.py→notify.py)用的安全版本。scripts/compare_vlm.py(Phase 6,docs/PLAN2.md)
+    (detect.py→notify.py)用的安全版本。scripts/compare_vlm.py
     需要看到真正的失敗原因(被安全過濾 vs 網路錯誤 vs 其他),故直接呼叫這個函式、
-    自己接例外——單一實作來源,不重造一份呼叫邏輯(呼應 D18/D20 的教訓)。
+    自己接例外，避免維護第二份供應商呼叫邏輯。
     """
     from langchain_core.messages import HumanMessage
 
@@ -73,8 +72,8 @@ def _describe_scene_raw(image_path: Path, model: str | None = None, provider: st
 def describe_scene(image_path: Path, model: str | None = None, provider: str | None = None) -> str:
     """回傳現場描述文字;任何失敗都回傳 FALLBACK_TEXT,絕不拋例外。
 
-    `model`/`provider` 不傳時走現行 Gemini 行為;Phase 6 的 compare_vlm.py 用這兩個
-    參數切到 OPENAI_MODEL 做對照(見 docs/PLAN2.md)。
+    `model`/`provider` 不傳時走現行 Gemini 行為；compare_vlm.py 用這兩個
+    參數切到 OPENAI_MODEL 做對照。
     """
     try:
         return _describe_scene_raw(image_path, model, provider)

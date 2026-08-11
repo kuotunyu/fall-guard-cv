@@ -1,4 +1,4 @@
-"""規則式視窗分類器(docs/PLAN.md §8.1 的閾值語意,套用在單一視窗的無狀態判斷)。
+"""規則式視窗分類器，套用在單一視窗的無狀態判斷。
 
 用途:視窗級 precision/recall/F1/PR-AUC 評估(§7.2)。與 fsm.py 共用相同的預設閾值,
 差別是這裡判斷「這個 1.5 秒視窗本身看起來像不像跌倒觸發+落地」,不像 fsm.py
@@ -18,7 +18,7 @@ from .fsm import FSMConfig
 # 理論上該用 -inf,但 sklearn 的 average_precision_score/precision_recall_curve 不接受
 # 非有限值的分數陣列會直接拋例外。改用夠大的有限負數:分類判斷(> 0)結果不變,PR-AUC
 # 計算也不會再炸。URFD 的 70 支影片從未真的觸發這個分支(否則早就在既有評估中炸過),
-# 是 Phase 7 導入 Le2i(偵測條件較嚴苛,部分視窗整段無偵測)才第一次踩到,見 docs/PLAN.md D46。
+# Le2i 的部分視窗完全沒有偵測，會實際走到這個分支。
 NO_DETECTION_SCORE = -1e6
 
 
@@ -69,7 +69,7 @@ def window_score(arrays: dict[str, np.ndarray], thresholds: RuleThresholds) -> f
     trigger_mask = valid & ((v_y > thresholds.v_y_threshold) | (np.abs(omega) > thresholds.omega_threshold))
     if not trigger_mask.any():
         # 沒觸發:分數為「離觸發閾值還差多少」的負值(越負代表越不像)。此處 valid.any() 恆真
-        # (第 66-67 行已提前 return NO_DETECTION_SCORE),不再需要防 -inf,見 D46。
+        # 前面已提前 return NO_DETECTION_SCORE，不會把 -inf 交給 sklearn。
         return float(np.nanmax(v_y[valid]) - thresholds.v_y_threshold)
 
     trigger_idx = int(np.argmax(trigger_mask))

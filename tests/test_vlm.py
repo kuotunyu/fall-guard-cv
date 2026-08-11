@@ -1,4 +1,4 @@
-"""vlm.py 單元測試:VLM 失敗(安全過濾/例外/空回應)一律回傳 fallback 文字,不拋例外(docs/PLAN.md §8.2)。"""
+"""VLM 失敗（安全過濾、例外、空回應）一律回傳 fallback 文字，不拋例外。"""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def test_describe_scene_returns_fallback_on_missing_file(tmp_path, monkeypatch):
 
 
 def test_describe_scene_forwards_model_and_provider_to_init_chat_model(tmp_path, monkeypatch):
-    """Phase 6(docs/PLAN2.md,VLM 描述品質對照):describe_scene 帶 model/provider 參數時,
+    """describe_scene 帶 model/provider 參數時，
     要把它們原封不動轉給 init_chat_model,且不能帶 google_genai 專屬的 safety_settings
     (OpenAI 不支援這個參數)。攔截 init_chat_model 本身,不真的呼叫任何 API。"""
     captured = {}

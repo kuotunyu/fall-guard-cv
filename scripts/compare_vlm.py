@@ -1,13 +1,12 @@
-"""VLM 描述品質對照(docs/PLAN2.md Phase 6)。
+"""VLM 描述品質對照。
 
 對 `events/` 現有的真實跌倒事件截圖,分別用 GEMINI_MODEL(主力)與 OPENAI_MODEL(備援)
 各跑一次現場描述,產出併排表供人工評註——把表3「備援/評審」欄從沒驗證過的設計,
 變成有實測依據的結論。
 
-會花錢的批次 API 呼叫,預設只印成本估算不會真的呼叫(CLAUDE.md 規範:先估算成本
-給使用者確認)。看過估算後,加 --yes 才會真的執行。
+會花錢的批次 API 呼叫預設只顯示呼叫數量，不會真的呼叫；加 --yes 才會執行。
 
-**隱私設計(D44)**:`events/` 的截圖是使用者真人跌倒測試的畫面,逐圖描述涉及居家隱私。
+**隱私設計**：`events/` 的截圖是使用者真人跌倒測試畫面，逐圖描述涉及居家隱私。
 輸出拆兩份——`docs/results/vlm_comparison_detail.md`(逐圖完整內容,.gitignore 排除,
 只留本機)與 `docs/results/vlm_comparison.md`(公開版,只有自動統計的彙總數字,不含
 任何逐圖描述文字)。公開版的「彙總結果」文字分析段落需要人工/AI 讀過 detail 檔案
@@ -28,7 +27,7 @@ from fallguard.vlm import FALLBACK_TEXT, _describe_scene_raw
 
 RESULTS_DIR = REPO_ROOT / "docs" / "results"
 PUBLIC_PATH = RESULTS_DIR / "vlm_comparison.md"
-DETAIL_PATH = RESULTS_DIR / "vlm_comparison_detail.md"  # .gitignore 排除,只留本機(D44)
+DETAIL_PATH = RESULTS_DIR / "vlm_comparison_detail.md"  # .gitignore 排除，只留本機
 
 # 每次呼叫 ≈ 1 張 720p JPEG + 短 prompt + ~150 token 輸出,兩個模型都是 flash-lite/mini
 # 級距(見 README「成本估算」的單次估算基礎),單次成本遠低於 $0.001。
@@ -93,7 +92,7 @@ def main() -> None:
     n_openai_ok = sum(1 for _, _, o in rows if _is_ok(o))
 
     header = (
-        f"docs/PLAN2.md Phase 6。主力：`{settings.gemini_model}`（GEMINI_MODEL）"
+        f"主力：`{settings.gemini_model}`（GEMINI_MODEL）"
         f"｜備援：`{settings.openai_model}`（OPENAI_MODEL）。\n"
         f"素材：`events/` 現有 {len(images)} 張真實事件截圖（跌倒測試截圖，因涉及居家隱私，"
         "逐圖詳細內容不公開，只公開彙總結果）。"
@@ -134,7 +133,7 @@ def main() -> None:
         "- 繁中流暢度：是否通順、適合直接給家人看",
         "",
         "**刻意不做 LLM-as-judge**：`OPENAI_MODEL` 本身是受測者，不能兼任裁判；樣本只有"
-        f"{len(images)} 張，人工判讀比自動評分更可信（見 docs/PLAN2.md Phase 6）。",
+        f"{len(images)} 張，因此保留人工判讀，不產生看似精密的自動分數。",
     ]
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)

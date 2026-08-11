@@ -1,4 +1,4 @@
-"""規則式 baseline 誤報分析(docs/PLAN.md §1.3 / Phase 2 DoD)。
+"""規則式 baseline 誤報分析。
 
 用各 ADL 影片所屬 LOSO 折的折內調參後設定(不碰 test 的方法論一致)跑狀態機,
 統計「動作類別 × 誤報」表,並畫跌倒/躺床/蹲下三聯特徵曲線圖說明規則為何(不)區分得開。
@@ -125,7 +125,7 @@ def plot_triplet(fall_video: VideoData, lying_video: VideoData, crouch_video: Vi
         ax.legend(fontsize=8, loc="best")
         ax.grid(alpha=0.3)
     axes[-1].set_xlabel("時間(秒,各影片皆從 0 起算)")
-    fig.suptitle("跌倒 vs 躺床 vs 蹲下:特徵曲線對照(docs/PLAN.md §1.3 誤報分析)")
+    fig.suptitle("跌倒 vs 躺床 vs 蹲下：特徵曲線對照")
     fig.tight_layout()
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120)
@@ -190,14 +190,14 @@ def main() -> None:
         f"{lying_example.video_id if lying_example else 'N/A'} / {crouch_example.video_id if crouch_example else 'N/A'})。",
         "",
         "**為何規則能區分躺床與跌倒**：躺床是緩慢受控下降，`v_y` 全程不會超過觸發閾值，"
-        "狀態機根本不會離開 NORMAL——這是躺床 vs 跌倒唯一可靠的判別子（PLAN.md §8.1）。",
+        "狀態機根本不會離開 NORMAL；下墜速度是這批樣本的重要判別特徵之一。",
         "",
         "**為何規則能區分蹲下與跌倒**：蹲下時髖高通常仍 > 0.5 torso（人還沒真正趴平），"
         "即使短暫觸發 FALLING，也達不到「躺姿」三條件，逾時退回 NORMAL。",
         "",
         "**已知弱點**：上表誤報率 > 0 的動作類別即為規則式方法目前的困難案例，"
-        "通常是快速蹲下/彎腰接近跌倒的下墜特徵，或關鍵點缺失導致誤判——這些正是 Phase 3 "
-        "ML 模型(學習更細緻的決策邊界)預期能改善的地方。",
+        "通常是快速蹲下/彎腰接近跌倒的下墜特徵，或關鍵點缺失導致誤判。XGBoost 對照用來檢查"
+        "資料驅動決策邊界是否能改善這些案例。",
     ]
 
     out_path = RESULTS_DIR / "error_analysis.md"

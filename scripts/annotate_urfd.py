@@ -1,6 +1,6 @@
 """URFD 人工標註工具:互動式 GUI,標 70 段影片的 subject_id(+ ADL 動作類別)。
 
-依據 docs/PLAN.md D6 / Phase 1 DoD:LOSO 評估協定需要受試者級標籤,
+LOSO 評估協定需要受試者級標籤，
 URFD 官方未提供 subject↔sequence 對照表,故人工看預覽片標註。
 
 用法：
@@ -202,7 +202,7 @@ def list_videos() -> list[tuple[str, str]]:
 def load_adl_lying_hint() -> dict[str, float]:
     """算每段 ADL 影片有多少比例的幀被 URFD 官方標成 label=1(躺姿幾何特徵)。
 
-    這不是「跌倒」標籤(docs/PLAN.md D12:ADL 定義上不含跌倒事件),但高比例通常
+    這不是「跌倒」標籤（ADL 定義上不含跌倒事件），但高比例通常
     代表躺床/躺地類動作,可當作動作類別判斷的參考提示,不能直接當答案。
     """
     csv_path = URFD_DIR / "urfall-cam0-adls.csv"

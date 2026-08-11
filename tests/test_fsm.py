@@ -1,4 +1,4 @@
-"""fsm.py 單元測試:合成特徵序列驗證狀態機行為(docs/PLAN.md Phase 2 DoD)。"""
+"""以合成特徵序列驗證狀態機行為。"""
 
 from __future__ import annotations
 
@@ -203,7 +203,7 @@ def test_lying_elapsed_s_tracks_on_ground_countdown():
 
 
 def test_on_ground_lying_timer_continues_through_partial_feature_occlusion():
-    """D16:軀幹可見(不觸發 `_is_frozen` 凍結)但其他特徵局部缺失(NaN)時,純時間的躺姿
+    """軀幹可見但其他特徵局部缺失（NaN）時，純時間的躺姿
     累積計時仍要照常檢查——先前只有 test_high_missing_rate_freezes_state_machine 測到
     「凍結」分支(torso_missing=True 直接 return,根本不會走到這段邏輯),這條路徑先前
     完全沒有測試覆蓋過(收尾複查發現)。缺失時間 <= jitter 容忍上限:計時不中斷。"""
@@ -235,7 +235,7 @@ def test_on_ground_lying_timer_continues_through_partial_feature_occlusion():
 
 
 def test_on_ground_lying_timer_resets_after_prolonged_occlusion():
-    """D16 對照組:局部遮擋超過 jitter 容忍上限時,躺姿累積計時應重新起算(不是無限容忍)。"""
+    """局部遮擋超過 jitter 容忍上限時，躺姿累積計時應重新起算。"""
     fsm = FallStateMachine(FSMConfig(confirm_seconds=2.0, lying_jitter_tolerance_s=0.5))
     dt = 1.0 / 25
     t = 0.0
@@ -298,7 +298,7 @@ def test_escalation_alert_fires_after_cooldown_while_still_on_ground():
 
 
 def test_occluded_recovery_does_not_silently_revert_alerted_to_normal():
-    """D49:恢復計時在特徵局部缺失(遮擋)期間不應讓空白時間也算數——否則等於在沒有持續
+    """恢復計時在特徵局部缺失（遮擋）期間不應讓空白時間也算數，否則等於在沒有持續
     視覺證據下靜默撤銷已確認的告警。修正前:1 幀疑似站起的證據 + 之後任意長度的遮擋,
     只要牆鐘時間累積滿 recovery_hold_s 就會誤判為已恢復;修正後遮擋期間應重新起算。"""
     fsm = FallStateMachine(FSMConfig(confirm_seconds=0.5, cooldown_s=1000.0, recovery_jitter_tolerance_s=0.5))

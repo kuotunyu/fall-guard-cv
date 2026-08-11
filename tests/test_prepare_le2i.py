@@ -1,4 +1,4 @@
-"""scripts/prepare_le2i.py 的標註解析測試(Phase 7,docs/PLAN2.md)。
+"""scripts/prepare_le2i.py 的標註解析測試。
 
 `parse_annotation()` 用合成標註檔測(不需要真的下載 Le2i);npz 產出的 schema/
 標籤測試則跟 test_prepare_data.py 同慣例,data/processed_le2i/ 不存在時優雅跳過。

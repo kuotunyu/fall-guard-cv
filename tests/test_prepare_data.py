@@ -69,14 +69,14 @@ def test_npz_schema_fall01():
 
 
 def test_label_alignment_fall01_full_coverage():
-    """fall-01 實測:160 幀,CSV frame_num 1-160 完整覆蓋,無缺口(見 PLAN.md D12)。"""
+    """fall-01 實測：160 幀，CSV frame_num 1-160 完整覆蓋。"""
     data = _require_npz("fall-01")
     assert data["label_present"].all()
     assert set(np.unique(data["raw_label"])) <= {-1, 0, 1}
 
 
 def test_label_alignment_adl01_has_known_gap():
-    """adl-01 實測:CSV 從 frame_num=6 開始覆蓋,且 frame_num=7 缺一列(見 PLAN.md D12)。
+    """adl-01 實測：CSV 從 frame_num=6 開始覆蓋，且 frame_num=7 缺一列。
     對齊公式 csv_frame_num - 1 = 影片幀索引(0-indexed),故:
       video index 0-4(frame_num 1-5)  → 無覆蓋
       video index 5  (frame_num 6)    → 有覆蓋

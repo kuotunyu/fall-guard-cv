@@ -1,7 +1,7 @@
-"""環境設定載入:金鑰與模型字串一律讀 .env,程式不寫死(CLAUDE.md 模型政策)。
+"""環境設定載入。
 
-金鑰命名對齊(docs/PLAN.md D7):langchain-google-genai 官方以 GOOGLE_API_KEY 為主,
-.env 只有 GEMINI_API_KEY 時自動補上 GOOGLE_API_KEY。
+langchain-google-genai 以 GOOGLE_API_KEY 為主；.env 只有 GEMINI_API_KEY 時，
+為了相容舊設定會自動補上 GOOGLE_API_KEY。
 """
 
 from __future__ import annotations

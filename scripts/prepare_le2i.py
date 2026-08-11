@@ -1,6 +1,6 @@
-"""Le2i 影片 → 關鍵點序列 .npz(本機 GPU 抽取,Phase 7,docs/PLAN2.md)。
+"""Le2i 影片 → 關鍵點序列 .npz（本機 GPU 抽取）。
 
-實地盤點結果(2026-07-24,見 docs/PLAN.md D45,非憑網路二手資訊硬做)：
+實地盤點結果（2026-07-24）：
 - 解壓後是 6 個場景資料夾：Coffee_room_01/02、Home_01/02(各自有 Annotation_files
   或 Annotations_files,可驗證真偽)、Lecture_room、Office(完全沒有任何標註檔案)。
 - **只用有標註可驗證的 4 個資料夾**；Office/Lecture_room 整批排除——沒有 ground
@@ -14,7 +14,7 @@
 - 舊版 .avi 容器的 cv2 `CAP_PROP_FRAME_COUNT` 常態性比實際解碼幀數少報 1(抽查
   3 段皆是),故不信任該欄位做對齊基準；一律以 `extract_video_pose()` 實際解碼出
   的幀數為準,超出這個範圍的標註列安靜忽略,不 assert 崩潰。
-- **「有無表頭」判斷式的獨立驗證(D51)**：這個規則是從資料反推出來的(非官方文件),
+- **「有無表頭」判斷式的獨立驗證**：這個規則是從資料反推出來的（非官方文件），
   曾嘗試用逐幀 activity code 欄位交叉驗證,但全量掃描 130 個標註檔後發現該欄位語意
   不明(官方 README 完全未定義)、且不足以在同一影片內部乾淨區分跌倒/非跌倒區段——
   127 段 fall 檔案裡有 78 段(61%)找不到「跌倒區間專屬」的 code,3 段 adl 檔案裡有
@@ -58,7 +58,7 @@ LE2I_RAW_DIR = REPO_ROOT / "data" / "raw" / "le2i"
 OUT_DIR = REPO_ROOT / "data" / "processed_le2i"
 POSE_MODEL_NAME = "yolo26m-pose.pt"
 
-# 只用有標註可驗證的資料夾(D45);(場景資料夾名, video_id 用的短代碼, 標註子資料夾名)。
+# 只用有標註可驗證的資料夾；欄位為場景資料夾名、video_id 短碼、標註子資料夾名。
 # Coffee_room_02 的標註子資料夾名多一個 s("Annotations_files"),下載下來就是這樣,
 # 不是筆誤——盤點時發現的真實不一致,原樣保留而非「修正」成看起來一致的假象。
 ANNOTATED_SCENES = [
@@ -95,7 +95,7 @@ def parse_annotation(ann_path: Path) -> tuple[str, int | None, int | None]:
     """回傳 (kind, fall_start_frame, fall_end_frame),起訖幀為 1-indexed。
 
     有跌倒的標註檔前兩行是純數字(跌倒起訖幀);沒有跌倒的標註檔沒有這兩行,
-    直接是逗號分隔的逐幀資料。用「第一行是否含逗號」判斷有無表頭(D45 實地盤點確認,
+    直接是逗號分隔的逐幀資料。用「第一行是否含逗號」判斷有無表頭（實地盤點確認，
     非文件描述,官方 README 對這個「無跌倒檔案省略表頭」的細節完全沒提)。
     """
     lines = ann_path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -115,7 +115,7 @@ def extract_one(model, video_id: str, video_path: Path, ann_path: Path) -> dict:
     label_present = np.ones((T,), dtype=bool)
     if kind == "fall":
         for i in range(T):
-            frame_num = i + 1  # 1-indexed,對齊 URFD 慣例,D45 實測確認同一套邏輯適用
+            frame_num = i + 1  # 1-indexed；實測確認與 URFD 採同一套邏輯
             if fall_start <= frame_num <= fall_end:
                 raw_label[i] = 1
 
@@ -180,7 +180,7 @@ def main() -> None:
 
     # 摘要統計一律從磁碟上實際存在的 npz 重新讀取,不用迴圈內累加——這樣不管是全新抽取
     # 還是「已存在,略過」的情況都會被算進去,避免分批跑(--limit 測試過的影片在正式全量
-    # 跑時被略過)導致統計數字漏算(曾經真的因此漏算 3 支,見 docs/PLAN.md D45)。
+    # 跑時被略過）導致統計數字漏算；實地盤點時曾因此漏算 3 支。
     n_fall = n_adl = 0
     detection_rates: list[float] = []
     for video_id, _, _ in videos:

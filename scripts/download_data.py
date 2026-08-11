@@ -4,7 +4,7 @@
     uv run python scripts/download_data.py                # 下載 URFD:70 mp4 + 2 CSV
     uv run python scripts/download_data.py --fallback le2i  # 改走 Kaggle 下載 Le2i/IMVIA
 
-依據：docs/PLAN.md D1。支援斷點續傳(Range request);結束印檔數/總大小 summary。
+支援斷點續傳（Range request）；結束印出檔數與總大小摘要。
 """
 
 from __future__ import annotations

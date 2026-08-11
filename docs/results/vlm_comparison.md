@@ -1,6 +1,6 @@
 # VLM 描述品質對照
 
-docs/PLAN2.md Phase 6。主力：`gemini-3.5-flash-lite`（GEMINI_MODEL）｜備援：`gpt-5-mini`（OPENAI_MODEL）。
+主力：`gemini-3.5-flash-lite`（GEMINI_MODEL）｜對照：`gpt-5-mini`（OPENAI_MODEL）。
 素材：`events/` 現有 12 張真實事件截圖（跌倒測試截圖，因涉及居家隱私，逐圖詳細內容不公開，只公開彙總結果）。
 
 ## 彙總結果
@@ -22,4 +22,4 @@ docs/PLAN2.md Phase 6。主力：`gemini-3.5-flash-lite`（GEMINI_MODEL）｜備
 - 嚴重程度評分合理性：1-5 分是否符合畫面實際情況
 - 繁中流暢度：是否通順、適合直接給家人看
 
-**刻意不做 LLM-as-judge**：`OPENAI_MODEL` 本身是受測者，不能兼任裁判；樣本只有 12 張，人工判讀比自動評分更可信（見 docs/PLAN2.md Phase 6）。
+**刻意不做 LLM-as-judge**：`OPENAI_MODEL` 本身是受測者，不能兼任裁判；樣本只有 12 張，因此保留人工判讀，不產生看似精密的自動分數。

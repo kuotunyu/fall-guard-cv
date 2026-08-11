@@ -1,4 +1,4 @@
-"""Discord webhook 跌倒通報(docs/PLAN.md D5/§8.3)。
+"""Discord webhook 跌倒通報。
 
 multipart 送出 embed + 附圖(`SEND_IMAGE=false` 時只送文字);429 依回應 body 的
 `retry_after` 秒數等待後重送一次。**告警送達是安全關鍵**:任何無法重試的錯誤
@@ -39,7 +39,7 @@ def send_fall_alert(
     escalation: bool = False,
     webhook_url: str | None = None,
 ) -> bool:
-    """送出跌倒通報。`image_path` 為 None 或 `SEND_IMAGE=false` 時只送文字 embed(D8)。"""
+    """送出跌倒通報。`image_path` 為 None 或 `SEND_IMAGE=false` 時只送文字 embed。"""
     url = webhook_url or settings.discord_webhook_url
     if not url:
         print("[notify] DISCORD_WEBHOOK_URL 未設定,略過送出(請至 .env 補上)")

@@ -6,9 +6,7 @@ CLAUDE.md
 interview*.md
 INTERVIEW_PREP.md
 *.private.md
-# docs/PLAN.md is tracked on purpose: tests/test_docs.py requires it publicly
-# (Decision Log + Phase sections). docs/PLAN2.md stays private — its D44 entry
-# narrates a real at-home fall-test privacy decision the user asked not to publish.
+# Private development notes stay local.
 docs/PLAN2.md
 .agents/
 
@@ -16,7 +14,7 @@ docs/PLAN2.md
 .venv/
 
 # 資料與權重不進 git(取得方式見 data/README.md 與 README);
-# 但 urfd_meta.csv(人工標註,無法重現)與 splits.json(評估協定,由前者衍生)例外(D13)
+# 但 urfd_meta.csv(人工標註,無法重現)與 splits.json(評估協定,由前者衍生)例外
 data/*
 !data/README.md
 !data/urfd_meta.csv
@@ -25,12 +23,12 @@ models/
 events/
 *.pt
 
-# 標註過程的暫時輔助圖(受試者臉部特寫比對用,非 Phase 4 正式交付物如 demo.gif)
+# 標註過程的暫時輔助圖(受試者臉部特寫比對用,不含公開的 demo.gif)
 docs/assets/subject_sheet.png
 docs/assets/subject_compare.png
 docs/assets/adl_sample_scan.png
 
-# VLM 對照的逐圖詳細描述(Phase 6,docs/PLAN2.md D44):內容是使用者真人跌倒測試截圖的
+# VLM 對照的逐圖詳細描述包含使用者真人跌倒測試截圖的
 # 文字描述,涉及居家隱私,只留本機;公開版 docs/results/vlm_comparison.md 只留彙總結論
 docs/results/vlm_comparison_detail.md
 

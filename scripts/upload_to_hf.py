@@ -1,4 +1,4 @@
-"""把 models/xgboost/ 的權重與模型卡上傳 Hugging Face(CLAUDE.md:模型權重不進 git,上傳 HF)。
+"""把 models/xgboost/ 的權重與模型卡上傳 Hugging Face；模型權重不進 Git。
 
 用法：
     uv run python scripts/upload_to_hf.py --repo-id <帳號>/fall-guard-cv-xgboost

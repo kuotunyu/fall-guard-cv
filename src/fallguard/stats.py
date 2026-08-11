@@ -1,4 +1,4 @@
-"""小型統計工具(docs/PLAN2.md Phase 5)。
+"""小型統計工具。
 
 目前只有 Wilson score 信賴區間，供 scripts/evaluate.py 的事件級指標使用——
 LOSO 小樣本折(如 P3/P4/P5 每折僅 6 段測試影片)算出來的 Sensitivity/Specificity
