@@ -3,6 +3,7 @@
 用法：
     uv run python scripts/check_public_text.py --staged             # pre-commit：掃 staged diff 新增行與檔名
     uv run python scripts/check_public_text.py --msg-file <路徑>    # commit-msg：掃 commit 訊息
+    uv run python scripts/check_public_text.py --tracked            # CI/發布前：掃所有 tracked 檔案
     uv run python scripts/check_public_text.py README.md            # 掃指定檔案全文（發佈前手動檢查）
 
 規則來源：
@@ -92,6 +93,27 @@ def _git(*args: str) -> str:
     return proc.stdout
 
 
+def tracked_paths() -> list[str]:
+    """Return every path tracked by Git, preserving spaces and Unicode names."""
+    return [path for path in _git("ls-files", "-z").split("\0") if path]
+
+
+def scan_tracked(redlist: list[str]) -> list[str]:
+    """Scan the complete public tree; binary files are checked by path only."""
+    paths = tracked_paths()
+    hits = scan_blocked_paths("tracked-路徑黑名單", paths)
+    for relative in paths:
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        hits += scan_text(f"tracked:{relative}", text, redlist)
+    return hits
+
+
 def scan_staged(redlist: list[str]) -> list[str]:
     """掃 staged diff 的新增行（不掃刪除行，移除禁詞的 commit 不該被擋）與檔名。"""
     hits: list[str] = []
@@ -121,12 +143,14 @@ def main(argv: list[str]) -> int:
 
     redlist = load_redlist()
     hits: list[str] = []
-    if "--staged" in argv:
+    if "--tracked" in argv:
+        hits += scan_tracked(redlist)
+    elif "--staged" in argv:
         hits += scan_staged(redlist)
     elif "--msg-file" in argv:
         msg_path = Path(argv[argv.index("--msg-file") + 1])
         hits += scan_text("commit-msg", msg_path.read_text(encoding="utf-8", errors="replace"), redlist)
-    else:
+    elif argv:
         hits += scan_blocked_paths("指定路徑黑名單", argv)
         for arg in argv:
             p = Path(arg)
@@ -134,6 +158,13 @@ def main(argv: list[str]) -> int:
                 hits += scan_text(str(p), p.read_text(encoding="utf-8", errors="replace"), redlist)
             else:
                 print(f"[public-copy-check] 跳過（非檔案）：{arg}", file=sys.stderr)
+
+    else:
+        print(
+            "用法：check_public_text.py --tracked | --staged | --msg-file <path> | <file> [...]",
+            file=sys.stderr,
+        )
+        return 2
 
     if hits:
         print("[public-copy-check] ❌ 發現不可公開內容：")
