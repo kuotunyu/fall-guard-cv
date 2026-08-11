@@ -5,221 +5,150 @@
 ![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-本專案為針對高齡照護情境設計之邊緣運算即時跌倒偵測與隱私防護通報系統。系統採用 Edge-first 理念，即時攝影機影像與 17 個姿態骨架關鍵點全數於本機推論處理，僅在狀態機確認觸發跌倒事件時，方調用 Multimodal VLM 產生現場語意描述並透由 Discord 發起安全告警。
+以人體姿態、時序狀態機與事件級 VLM 描述組成的居家跌倒偵測研究原型。影像預設先在本機處理；只有狀態機確認事件後，系統才依設定保存影格、呼叫 VLM 或送出 Discord 通報。
 
-> **免責聲明**：本專案為個人演算法與電腦視覺實驗展示，不構成任何醫療、長照機構放行或緊急救護系統承諾。
+> **使用邊界**：這是作品集與研究原型，不是醫療器材、照護保證或緊急救援服務，也不是臨床驗證。不可單獨用於攸關生命安全的決策。
 
-![跌倒狀態機示範](docs/assets/demo.gif)
+![fall-guard-cv demo](docs/assets/demo.gif)
 
----
-
-## 系統核心機制
-
-1. **隱私優先與零影像常態上傳 (Edge-First Privacy)**：
-   YOLO26-pose 人體骨架抽取、特徵計算與狀態機判定 100% 於本機 GPU 執行，平時串流影像完全不離開本機記憶體。
-2. **多關卡狀態機防誤報 (5-State Machine)**：
-   依序驗證「快速下墜 ➔ 確認躺姿 ➔ 姿態持續 N 秒」三道門檻，能精確排除日常蹲下、撿東西與正常躺床行為。
-3. **異質 VLM 語意描述與事件簽章**：
-   確認跌倒後截取撞擊與確認影格，調用 Gemini VLM 產生現場姿勢、環境與嚴重度評分，並於本地歸因備份。
-4. **受試者層級 LOSO 交叉驗證 (Leave-One-Subject-Out)**：
-   在 UR Fall Detection (URFD) 資料集上執行 5 折受試者嚴格隔離驗證，並於 Le2i 資料集進行跨場域泛化檢驗。
-
----
-
-## 系統架構與狀態機
-
-### 系統推論與通報管線
+## 系統架構
 
 ```mermaid
-%%{init: {'themeVariables': {'fontSize': '20px'}}}%%
-flowchart TD
-    subgraph S1["看：關鍵點偵測"]
-        A["攝影機 / 影片輸入"] --> B["YOLO26-pose<br/>17 個人體骨架關鍵點"]
-    end
-
-    subgraph S2["想：跌倒判定與狀態機"]
-        B --> C["時序特徵計算<br/>軀幹傾角、下墜速度、髖部高度"]
-        C --> D["分類器 (規則式 / XGBoost)"]
-        D --> E["五階段跌倒狀態機<br/>計時與防誤報門檻"]
-    end
-
-    subgraph S3["通報：隱私防護與告警"]
-        E -->|確認跌倒| F["截取現場關鍵影格"]
-        F --> G{"LOCAL_ONLY 模式？"}
-        G -->|否| H["Gemini VLM 現場語意描述"]
-        G -->|是| I["跳過 VLM"]
-        H --> J["Discord 告警通知"]
-        I --> J
-    end
-
-    style E fill:#fff9db,stroke:#f59f00,stroke-width:2px
-    style H fill:#e7f5ff,stroke:#1971c2,stroke-width:2px
+flowchart LR
+    A[Camera / video] --> B[YOLO26 pose]
+    B --> C[Pose features]
+    C --> D[Rule or XGBoost classifier]
+    D --> E[Five-state temporal FSM]
+    E -->|confirmed event| F[Local event snapshot]
+    F --> G{LOCAL_ONLY}
+    G -->|true| H[Local feature summary]
+    G -->|false| I[Configurable VLM]
+    H --> J[Optional Discord alert]
+    I --> J
 ```
 
-### 五階段跌倒狀態機
+狀態機依序處理 `NORMAL → FALLING → ON_GROUND → CONFIRMED → ALERTED`，用姿態變化、倒地狀態與持續時間降低單幀誤報。這是可解釋的工程設計，不代表已在所有居家行為或族群上證明安全。
 
-```mermaid
-%%{init: {'themeVariables': {'fontSize': '20px'}}}%%
-stateDiagram-v2
-    state "NORMAL - 正常" as NORMAL
-    state "FALLING - 疑似下墜" as FALLING
-    state "ON_GROUND - 已倒地計時中" as ON_GROUND
-    state "CONFIRMED - 確認跌倒" as CONFIRMED
-    state "ALERTED - 已通報冷卻中" as ALERTED
+## 模型選型
 
-    [*] --> NORMAL
-    NORMAL --> FALLING : 快速下墜
-    FALLING --> ON_GROUND : 短時間內達成躺姿
-    FALLING --> NORMAL : 逾時未達躺姿
-    ON_GROUND --> CONFIRMED : 躺姿持續 N 秒
-    ON_GROUND --> NORMAL : 恢復直立
-    CONFIRMED --> ALERTED : 截圖 ➔ VLM ➔ Discord
-    ALERTED --> NORMAL : 恢復直立
-    ALERTED --> ALERTED : 冷卻結束仍倒地 ➔ 再次告警
-```
-
----
-
-## 模組選型與特徵分析
-
-### 1. Pose 骨架模型選型 (YOLO26-pose)
-
-| 模型的尺寸 | COCO Pose mAP | 本專案配置與選型理由 |
-|---|---:|---|
-| YOLO26n-pose | 57.2 | 開發期快速打通管線 |
-| YOLO26s-pose | 63.0 | 輕量化測試 |
-| **YOLO26m-pose** | **68.8** | **正式部署預設**：準確度與推理延遲之黃金平衡點，無 NMS 後處理 |
-| YOLO26l-pose | 70.4 | 高算力場景 |
-| YOLO26x-pose | 71.6 | 邊際效益遞減，算力開銷過高 |
-
-### 2. 分類器選型 (規則式 vs XGBoost, LOSO 視窗級)
-
-採用受試者層級 (Leave-One-Subject-Out) 5 折驗證，XGBoost 採用 54 維時序統計特徵：
-
-| Fold 拆分 | Precision (規則 / XGB) | Recall (規則 / XGB) | F1-Score (規則 / XGB) |
-|---|---:|---:|---:|
-| **P1** | 0.677 / 0.609 | 0.913 / 0.913 | **0.778** / 0.730 |
-| **P2** | 0.656 / 0.575 | 0.913 / 0.913 | **0.764** / 0.706 |
-| **P3** | 0.714 / 0.611 | 0.909 / 1.000 | **0.800** / 0.759 |
-| **P4** | 1.000 / 1.000 | 0.538 / 0.444 | **0.700** / 0.615 |
-| **P5** | 1.000 / 1.000 | 0.467 / 0.667 | 0.636 / **0.800** |
-
-#### SHAP 特徵重要度分析
-
-SHAP 分析證實特徵極度集中於 `y_std_min` 與 `hip_height_min`，驗證了物理領域知識中「髖部垂直高度」為判別跌倒之核心因子：
-
-![SHAP 特徵重要度摘要](docs/assets/shap_summary.png)
-
-### 3. VLM 語意描述對比
-
-| 模型角色 | 預設 API 模型 | 功能與職責 |
+| 元件 | 預設／選項 | 定位 |
 |---|---|---|
-| **主力模型** | `gemini-3.5-flash-lite` | 跌倒確認後描述姿勢、環境與嚴重度評分 |
-| **備援與質檢** | `gpt-5-mini` | 異質模型 cross-validation 與描述品質比對 |
+| Pose | `yolo26m-pose.pt` | 取得 17 個人體關鍵點；上游 COCO pose mAP 68.8 是 Ultralytics 公布的通用姿態指標，不是本專案跌倒偵測成績 |
+| 事件分類 | 可解釋規則／XGBoost | 以姿態時序特徵判斷候選事件；XGBoost 權重另存於 Hugging Face |
+| 事件描述 | `gemini-3.5-flash-lite` | 僅在確認事件後產生文字描述，可用環境變數替換 |
+| 對照模型 | `gpt-5-mini` | 曾用於 12 張私有事件截圖的非正式供應商對照，不是安全驗證或自動備援共識機制 |
 
----
+模型名稱與能力請以 [Ultralytics YOLO26 文件](https://docs.ultralytics.com/models/yolo26/)、[Gemini 3.5 Flash-Lite 文件](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)及 [OpenAI GPT-5 mini 文件](https://developers.openai.com/api/docs/models/gpt-5-mini)為準。
 
-## 評估結果（評測結果與誤報分析）
+## 評估結果
 
-### 1. 視窗級混淆矩陣 (1.5s 滑動視窗, 5 折加總)
+### URFD 視窗級結果
 
-| 實際 \ 預測 | 預測：非跌倒 | 預測：跌倒 |
+五個受試者折的規則基線彙總如下。這是固定視窗分類統計，不等同於「一次影片是否成功通報」的事件級指標。
+
+| | 預測非跌倒 | 預測跌倒 |
 |---|---:|---:|
-| **實際：非跌倒** | **TN = 1,207** | FP = 46 |
-| **實際：跌倒** | FN = 29 | **TP = 115** |
+| 實際非跌倒 | TN 1,207 | FP 46 |
+| 實際跌倒 | FN 29 | TP 115 |
 
-### 2. 日常動作 (ADL) 誤報率剖析
+### URFD 事件級結果
 
-針對 40 段日常活動 (Activities of Daily Living) 進行分類統計：
+評估腳本在各 fold 的訓練資料內選參數，測試時使用 1.5 秒逾時與 0.3 秒確認門檻。P1、P2 同時含 fall 與 ADL；P3/P4/P5 的測試折只有 fall。
 
-| 日常動作類別 | 測試影片段數 | 誤報率 (FP Rate) | 特徵行為說明 |
-|---|---:|---:|---|
-| **其他日常動作** | 4 | 25.0% | 包含劇烈肢體擺動 |
-| **正常躺床** | 7 | 14.3% | 軀幹角度漸變，下墜速度低 |
-| **撿東西 / 彎腰** | 14 | 7.1% | 姿態快速恢復直立 |
-| **蹲下 / 綁鞋帶** | 6 | 0.0% | 髖部高度降，無急劇下墜 |
-| **坐下** | 9 | 0.0% | 姿態保持垂直 |
+| Fold | Fall / ADL 影片 | Sensitivity | Specificity |
+|---|---:|---:|---:|
+| P1 | 6 / 24 | 1.000 | 0.917 |
+| P2 | 6 / 16 | 1.000 | 0.938 |
+| P3 | 6 / 0 | 0.833 | N/A |
+| P4 | 6 / 0 | 0.667 | N/A |
+| P5 | 6 / 0 | 0.500 | N/A |
 
-#### 跌倒 vs 躺床 vs 蹲下 特徵時序曲線對照
+因此 P3/P4/P5 的 **Specificity 無法估計**，不可把它們與 P1/P2 平均成完整的五折 specificity。
 
-藍色代表「躺床」，雖然最終姿態與跌倒相似，但**下墜速度全程低於門檻**，此為區分躺床與跌倒的最關鍵物理物理特徵：
+### 跨資料集測試
 
-![跌倒 vs 躺床 vs 蹲下特徵曲線對照](docs/assets/error_analysis_triplet.png)
+URFD 調整後直接在 Le2i 測試：事件級 Sensitivity **0.559**（95% CI 0.47–0.64），Specificity **0.000**（95% CI 0.00–0.56）。Le2i 測試集雖有 130 段影片，但非跌倒樣本只有 **3 段 ADL**、總長 97.8 秒，因此 specificity 與 FP/hour 都極不穩定。這個結果揭露了明顯的跨場域泛化缺口，而不是可部署證明。
 
----
+完整可追溯結果：
 
-## 資料集與授權（合規細節）
+- [規則基線、事件級評估與限制](docs/results/rule_baseline.md)
+- [XGBoost 基線](docs/results/xgb_baseline.md)
+- [URFD → Le2i 跨資料集評估](docs/results/cross_dataset.md)
+- [錯誤分析](docs/results/error_analysis.md)
+- [VLM 非正式描述對照](docs/results/vlm_comparison.md)
 
-1. **UR Fall Detection Dataset (URFD)**：包含 30 段跌倒與 40 段日常活動影片，遵循 **CC BY-NC-SA 4.0** 授權。引用：
+![SHAP feature summary](docs/assets/shap_summary.png)
 
-   > Bogdan Kwolek, Michal Kepski, "Human fall detection on embedded platform using depth maps and wireless accelerometer," *Computer Methods and Programs in Biomedicine*, 117(3), Dec 2014.
+## 評估限制
 
-   官方頁面：<https://fenix.ur.edu.pl/~mkepski/ds/uf.html>。
-2. **Le2i Fall Dataset**：包含 Coffee room 與 Home 場景共 130 段逐幀標註影片，用於跨場域泛化評測。
+- URFD 只有 5 位受試者；ADL 又只出現在 P1/P2，折間的指標可用性不對稱。
+- 時間參數雖在每折 train IDs 內選擇，但候選範圍 0.3–1.5 秒先由全部 30 段 fall 影片的探索分析決定；不是嚴格 nested cross-validation，Sensitivity 可能偏樂觀。
+- 評估使用的 0.3 秒確認值與即時執行預設 `FALL_CONFIRM_SECONDS=10` 不同；研究結果不能直接代表預設部署行為。
+- Le2i 的 ADL 樣本過少，且資料來源、場景與標註語意和 URFD 不完全相同。
+- VLM 對照只有同一居家環境的 12 張私有截圖，沒有獨立標註者、盲評或固定評分規準；只證明 API 能完成這批呼叫。
+- 尚未進行老人族群、遮擋、多攝影機、長時間家庭測試、臨床工作流程或故障安全驗證。
 
----
+## 資料集與授權
+
+1. **UR Fall Detection Dataset (URFD)**：30 段 fall、40 段 ADL。來源為 [University of Rzeszów 官方頁面](https://fenix.ur.edu.pl/~mkepski/ds/uf.html)，依其資料集說明以 **CC BY-NC-SA 4.0** 使用；本 repository 不重新散布原始資料。
+
+   > Bogdan Kwolek and Michal Kepski, “Human fall detection on embedded platform using depth maps and wireless accelerometer,” *Computer Methods and Programs in Biomedicine*, 117(3), 2014.
+
+2. **Le2i Fall Detection Dataset**：本機研究評估使用 Coffee room 與 Home 場景的 Kaggle mirror。該 mirror 沒有清楚的再散布授權，因此原始影片不納入 repository，也不隨 release 發布；請引用 Charfi et al. (2013) 並自行確認資料使用權利。
+
+本專案 MIT License 只涵蓋作者自己的程式與文件。Ultralytics 套件及模型另受其 [AGPL-3.0／Enterprise 授權](https://www.ultralytics.com/license)約束；資料集、模型權重與第三方服務不因本 repository 的 MIT License 而改變授權。
 
 ## 快速開始
 
-需求：Python 3.11、NVIDIA GPU、`uv`。
+核心測試與文件檢查不需要下載資料或使用 GPU：
 
-### 1. 環境初始化與資料準備
+```powershell
+uv sync --locked
+uv run ruff check .
+uv run pytest -q
+uv run python scripts/check_public_text.py --tracked
+```
 
-```bash
-# 1. 安裝相依套件 (Windows cu128 PyTorch)
-uv sync
-uv run python -c "import torch; print(torch.cuda.is_available())"
+如要執行推論，先複製 `.env.example`，只填入實際需要的服務憑證；`data/`、`models/`、`events/` 與 `.env` 都不會進 Git。
 
-# 2. 設定環境變數 (.env 填入 DISCORD_WEBHOOK_URL 與 GEMINI_API_KEY)
-copy .env.example .env
-
-# 3. 下載 URFD 與骨架關鍵點抽取
+```powershell
+Copy-Item .env.example .env
 uv run python scripts/download_data.py
 uv run python scripts/prepare_data.py
 uv run python scripts/annotate_urfd.py
 uv run python scripts/make_splits.py
 ```
 
-### 2. 執行評測與即時偵測
+## 即時偵測
 
-```bash
-# 評估規則式與 XGBoost 分類器 (LOSO 協定)
-uv run python scripts/evaluate.py --model rule --protocol loso
+```powershell
+# 完全本機模式：不呼叫 VLM；Discord 僅能收到本機摘要
+$env:LOCAL_ONLY="true"
+uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4
 
-# 影片檔或 Webcam 即時偵測 (開啟 --benchmark 可測 42.8 FPS 吞吐量)
-uv run python -m fallguard.detect --source data/raw/urfd/fall-01-cam0.mp4 --benchmark
+# 顯示效能統計；數值會依硬體、輸入與模型而變化
+uv run python -m fallguard.detect --source 0 --benchmark
 ```
 
----
+沒有經過明確記錄的硬體、輸入解析度、暖機與量測流程，本 README 不宣稱固定 FPS。
 
-## 隱私設計（防護機制）
+## 隱私設計
 
-- **常態零上傳**：Pose 骨架計算與狀態機推論 100% 於本機 GPU 執行。
-- **事件驅動觸發**：僅在進入 `CONFIRMED` 狀態時截取關鍵影格送交 VLM。
-- **純文字防護模式 (`LOCAL_ONLY=true`)**：可完全跳過雲端 VLM，Discord 僅發送文字與特徵摘要告警。
+- Pose 與時序判斷通常在本機執行。
+- 確認事件後，系統可能把影格送至所設定的 VLM 供應商；`LOCAL_ONLY=true` 可完全跳過 VLM。
+- `SEND_IMAGE=false` 可避免 Discord 附上影像，但若未啟用 `LOCAL_ONLY`，VLM 仍可能收到確認影格。
+- `events/` 的私人截圖、逐圖 VLM 描述、資料集與模型檔均被 Git 排除；公開 repository 只保留彙總證據。
 
----
+## API 費用邊界
 
-## 成本估算（算力開銷）
+VLM 與通知服務的價格會變動，費用也取決於供應商、模型、影像大小與輸出長度。本專案不承諾固定單次成本；執行前請查閱供應商當期定價，或使用 `LOCAL_ONLY=true` 完全停用 VLM 呼叫。
 
-- **本機推論**：RTX 4090 + YOLO26m-pose 平均運算速度為 **42.8 FPS**，無雲端費用。
-- **VLM API 呼叫**：採用 `gemini-3.5-flash-lite`，單次告警成本低於 **$0.001 USD**。
+## 關鍵套件版本
 
----
-
-## 關鍵套件版本（依賴規格）
-
-| 套件名稱 | 鎖定版本 | 用途說明 |
-|---|---|---|
-| Python | 3.11 | 環境基準 |
-| ultralytics | 8.4.102 | YOLO26-pose 骨架檢測 |
-| torch / torchvision | 2.11.0+cu128 / 0.26.0+cu128 | PyTorch CUDA 12.8 加速 |
-| langchain / langchain-google-genai | 1.3.14 / 4.2.7 | Gemini VLM 結構化呼叫 |
-| xgboost | 3.2.0 | 54 維時序特徵梯度提升分類 |
-
----
+精確、可重建的解析版本以 [`uv.lock`](uv.lock) 為準；主要相依範圍定義於 [`pyproject.toml`](pyproject.toml)。目前鎖定 Python 3.11、CUDA 12.8 PyTorch 索引、Ultralytics、OpenCV、XGBoost 與 LangChain provider packages。
 
 ## 評估紀錄與授權
 
-- **評估紀錄**：完整規則式、XGBoost、錯誤分析與跨資料集結果位於 [`docs/results/`](docs/results/)。
-- **授權**：程式碼採用 [MIT License](LICENSE)。URFD 資料集遵循 CC BY-NC-SA 4.0 授權，XGBoost 權重託管於 Hugging Face [`steven0226/fall-guard-cv-xgboost`](https://huggingface.co/steven0226/fall-guard-cv-xgboost)。
+- 可重跑命令、結果表與方法限制集中於 [`docs/results/`](docs/results/)。
+- XGBoost 權重發布於 Hugging Face：[`steven0226/fall-guard-cv-xgboost`](https://huggingface.co/steven0226/fall-guard-cv-xgboost)。
+- 作者程式與文件使用 [MIT License](LICENSE)；第三方模型、資料與服務依各自條款。

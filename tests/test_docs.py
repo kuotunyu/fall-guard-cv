@@ -13,11 +13,41 @@ REQUIRED_README_SECTIONS = [
     "快速開始",
     "即時偵測",
     "評估結果",
+    "評估限制",
     "隱私設計",
-    "成本估算",
+    "API 費用邊界",
     "關鍵套件版本",
     "評估紀錄與授權",
 ]
+
+
+def test_readme_surfaces_material_evaluation_limits():
+    text = _read(REPO_ROOT / "README.md")
+    for required in [
+        "P3/P4/P5",
+        "Specificity 無法估計",
+        "0.559",
+        "0.000",
+        "3 段 ADL",
+        "不是臨床驗證",
+    ]:
+        assert required in text, f"README.md 未明確揭露重要限制：{required}"
+
+
+def test_readme_avoids_unsupported_product_and_cost_claims():
+    text = _read(REPO_ROOT / "README.md")
+    for forbidden in [
+        "能精確排除",
+        "黃金平衡點",
+        "單次告警成本低於",
+        "cross-validation 與描述品質比對",
+    ]:
+        assert forbidden not in text, f"README.md 含未被證據支持的說法：{forbidden}"
+
+
+def test_runtime_copy_avoids_hard_coded_api_price_claims():
+    text = _read(REPO_ROOT / "src" / "fallguard" / "detect.py")
+    assert "遠低於 $0.001" not in text
 
 
 def _read(path: Path) -> str:

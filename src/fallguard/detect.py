@@ -151,10 +151,10 @@ def run_alert(confirm_path: Path, escalation: bool) -> None:
 def print_cost_estimate() -> None:
     print("=== VLM 呼叫資訊 ===")
     print(f"模型:{settings.gemini_model}")
-    print("每次通報 ≈ 1 張 720p JPEG + 短 prompt + ~150 token 輸出,單次成本遠低於 $0.001")
+    print("VLM 呼叫會依供應商、模型與輸入大小產生費用;請以供應商現行定價為準")
     hourly_cap = 3600 / settings.alert_cooldown_seconds if settings.alert_cooldown_seconds > 0 else float("inf")
     print(f"冷卻 {settings.alert_cooldown_seconds:.0f}s ⇒ 每小時最多 {hourly_cap:.0f} 次告警(天花板情境,非預期實際頻率)")
-    print("實際單價請以官方定價頁為準;LOCAL_ONLY=true 可完全跳過此項花費")
+    print("LOCAL_ONLY=true 可完全跳過 VLM 呼叫")
     print()
 
 

@@ -1,8 +1,7 @@
 """VLM 描述品質對照。
 
-對 `events/` 現有的真實跌倒事件截圖,分別用 GEMINI_MODEL(主力)與 OPENAI_MODEL(備援)
-各跑一次現場描述,產出併排表供人工評註——把表3「備援/評審」欄從沒驗證過的設計,
-變成有實測依據的結論。
+對 `events/` 現有的真實跌倒事件截圖,分別用 GEMINI_MODEL(主力)與 OPENAI_MODEL(對照)
+各跑一次現場描述,產出併排表供人工檢查。這是 API 整合紀錄,不是安全驗證。
 
 會花錢的批次 API 呼叫預設只顯示呼叫數量，不會真的呼叫；加 --yes 才會執行。
 
@@ -13,7 +12,7 @@
 後再手動補寫,腳本本身只自動填入客觀統計數字。
 
 用法：
-    uv run python scripts/compare_vlm.py          # 只印成本估算,不呼叫任何 API
+    uv run python scripts/compare_vlm.py          # 只印呼叫範圍,不呼叫任何 API
     uv run python scripts/compare_vlm.py --yes     # 確認後執行,呼叫兩個模型並產出報告
 """
 
@@ -28,11 +27,6 @@ from fallguard.vlm import FALLBACK_TEXT, _describe_scene_raw
 RESULTS_DIR = REPO_ROOT / "docs" / "results"
 PUBLIC_PATH = RESULTS_DIR / "vlm_comparison.md"
 DETAIL_PATH = RESULTS_DIR / "vlm_comparison_detail.md"  # .gitignore 排除，只留本機
-
-# 每次呼叫 ≈ 1 張 720p JPEG + 短 prompt + ~150 token 輸出,兩個模型都是 flash-lite/mini
-# 級距(見 README「成本估算」的單次估算基礎),單次成本遠低於 $0.001。
-EST_COST_PER_CALL_USD = 0.001
-
 
 def _sanitize_cell(text: str) -> str:
     """markdown 表格儲存格不能有裸露的換行或 `|`,轉成安全字元。"""
@@ -59,7 +53,7 @@ def main() -> None:
             pass
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--yes", action="store_true", help="確認成本估算後才加這個旗標,否則只印估算不執行")
+    parser.add_argument("--yes", action="store_true", help="明確允許 API 呼叫；未加時只印呼叫範圍")
     args = parser.parse_args()
 
     events_dir = settings.events_dir
@@ -69,13 +63,12 @@ def main() -> None:
         sys.exit(1)
 
     n_calls = len(images) * 2
-    est_total = n_calls * EST_COST_PER_CALL_USD
     print(f"找到 {len(images)} 張事件截圖（{events_dir}）。")
     print(f"將對每張圖各用 `{settings.gemini_model}`(GEMINI_MODEL)與 `{settings.openai_model}`(OPENAI_MODEL)跑一次描述，")
-    print(f"共 {n_calls} 次 API 呼叫，估計總花費 < ${est_total:.3f}。")
+    print(f"共 {n_calls} 次 API 呼叫；費用依供應商當期定價、模型與輸入大小而定。")
 
     if not args.yes:
-        print("\n這只是成本估算，尚未呼叫任何 API。確認金額可接受後，加 --yes 重新執行才會真的送出請求。")
+        print("\n尚未呼叫任何 API。查閱供應商當期定價後，加 --yes 重新執行才會送出請求。")
         return
 
     rows = []
@@ -93,7 +86,7 @@ def main() -> None:
 
     header = (
         f"主力：`{settings.gemini_model}`（GEMINI_MODEL）"
-        f"｜備援：`{settings.openai_model}`（OPENAI_MODEL）。\n"
+        f"｜對照：`{settings.openai_model}`（OPENAI_MODEL）。\n"
         f"素材：`events/` 現有 {len(images)} 張真實事件截圖（跌倒測試截圖，因涉及居家隱私，"
         "逐圖詳細內容不公開，只公開彙總結果）。"
     )
@@ -113,34 +106,32 @@ def main() -> None:
         detail_lines.append(f"| {name} | {_sanitize_cell(gemini_text)} | {_sanitize_cell(openai_text)} |")
 
     public_lines = [
-        "# VLM 描述品質對照",
+        "# VLM 描述品質非正式對照",
         "",
         header,
         "",
-        "## 彙總結果（自動統計）",
+        "## 可確認的結果（自動統計）",
         "",
         f"- GEMINI_MODEL：{n_gemini_ok}/{len(images)} 次成功（非 fallback）",
         f"- OPENAI_MODEL：{n_openai_ok}/{len(images)} 次成功（非 fallback）",
         "",
-        "> **文字分析段落待人工/AI 補寫**：讀過 `vlm_comparison_detail.md`（本機限定）的逐圖內容後，"
-        "在此手動補上品質、格式差異、嚴重程度評分合理性等分析，再同步更新 README 表3 備援欄。",
+        "> 非 fallback 只代表 API 有回應，不代表描述正確、嚴重度校準或安全性。",
         "",
-        "## 評比維度提示（人工評註用）",
+        "## 方法限制",
         "",
-        "- 姿態描述準確度：是否正確描述人物姿態與位置",
-        "- 環境描述：是否有提到周遭環境/危險物",
-        "- 嚴重程度評分合理性：1-5 分是否符合畫面實際情況",
-        "- 繁中流暢度：是否通順、適合直接給家人看",
+        f"- 只有 {len(images)} 張私人影像,且來自同一居家環境與測試者。",
+        "- 沒有獨立標註者、盲評、預先註冊 rubric 或統計檢定。",
+        "- 私人影像與逐圖輸出不公開,第三方無法完整重現內容評比。",
+        "- 對照模型不是裁判,也不是能排除系統性錯誤的安全備援。",
         "",
-        "**刻意不做 LLM-as-judge**：`OPENAI_MODEL` 本身是受測者，不能兼任裁判；樣本只有"
-        f"{len(images)} 張，因此保留人工判讀，不產生看似精密的自動分數。",
+        "這份結果只能作為 API 整合紀錄,不能作為醫療、臨床或部署安全證據。",
     ]
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     DETAIL_PATH.write_text("\n".join(detail_lines), encoding="utf-8")
     PUBLIC_PATH.write_text("\n".join(public_lines), encoding="utf-8")
     print(f"已寫入 {DETAIL_PATH}（本機限定，不進 git）")
-    print(f"已寫入 {PUBLIC_PATH}（公開版，彙總文字分析待人工/AI 補寫）")
+    print(f"已寫入 {PUBLIC_PATH}（公開版，只含呼叫統計與方法限制）")
 
 
 if __name__ == "__main__":
