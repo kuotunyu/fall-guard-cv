@@ -7,10 +7,10 @@ Le2i 資料目錄時的 exit path。用合成資料建構,不需要真實 npz �
 
 from __future__ import annotations
 
+import evaluate as evaluate_module
 import numpy as np
 import pytest
 from evaluate import VideoData, event_level_metrics, run_cross_evaluation, window_ground_truth
-import evaluate as evaluate_module
 
 from fallguard.features import FrameFeatures
 from fallguard.fsm import FSMConfig

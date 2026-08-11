@@ -113,7 +113,7 @@ def test_brief_posture_jitter_does_not_reset_confirm_timer():
         frames.append(_frame(t, theta=80.0, v_y=0.0, rho=1.5, hip_height=0.2))
         t += dt
 
-    final_state = _run(fsm, frames)
+    _run(fsm, frames)
     assert fsm.confirmed_at is not None, "短暫抖動不應阻止 CONFIRMED"
 
 

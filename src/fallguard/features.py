@@ -99,7 +99,6 @@ def _interpolate_short_gaps(arr: np.ndarray, timestamps: np.ndarray, max_gap_s: 
     if not isnan.any() or isnan.all():
         return arr
 
-    valid_idx = np.flatnonzero(~isnan)
     # 逐段找連續 NaN 區間
     nan_runs = []
     start = None
@@ -137,7 +136,6 @@ def _rolling_median(arr: np.ndarray, timestamps: np.ndarray, window_s: float) ->
 
 def _diff_with_smoothing(arr: np.ndarray, timestamps: np.ndarray, smooth_frames: int = SMOOTH_WINDOW_FRAMES) -> np.ndarray:
     """差分(用實際 Δt)後做移動平均去抖,對應 v_y / dρ/dt 的規格寫法。"""
-    d = np.full_like(arr, np.nan, dtype=np.float64)
     dt = np.diff(timestamps, prepend=timestamps[0] - (timestamps[1] - timestamps[0] if len(timestamps) > 1 else 1))
     dt[dt <= 0] = np.nan
     raw = np.empty_like(arr)

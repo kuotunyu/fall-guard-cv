@@ -18,7 +18,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
-import numpy as np
 
 # matplotlib 預設字型(DejaVu Sans)不含中文字形,圖上中文會顯示空白方塊,改用系統內建中文字型。
 _CJK_FONT_PATH = "C:/Windows/Fonts/msjh.ttc"
@@ -30,7 +29,6 @@ plt.rcParams["axes.unicode_minus"] = False  # 中文字型常缺負號字形,改
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import (  # noqa: E402
     RESULTS_DIR,
-    RuleThresholds,
     VideoData,
     build_window_samples,
     load_all_videos,
@@ -39,8 +37,9 @@ from evaluate import (  # noqa: E402
     tune_fsm_timing,
     tune_thresholds,
 )
+
 from fallguard.config import REPO_ROOT  # noqa: E402
-from fallguard.fsm import FSMConfig, FallStateMachine  # noqa: E402
+from fallguard.fsm import FSMConfig  # noqa: E402
 
 META_PATH = REPO_ROOT / "data" / "urfd_meta.csv"
 ASSETS_DIR = REPO_ROOT / "docs" / "assets"

@@ -16,20 +16,23 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import itertools
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.metrics import average_precision_score, confusion_matrix, f1_score, precision_score, recall_score
 
 from fallguard.config import REPO_ROOT
-from fallguard.features import FrameFeatures, compute_features, make_windows, window_stat_vector
+from fallguard.features import compute_features, make_windows, window_stat_vector
 from fallguard.fsm import FallStateMachine, FSMConfig, State
 from fallguard.rules import RuleThresholds, window_arrays, window_score
 from fallguard.stats import wilson_interval
+
+if TYPE_CHECKING:
+    import xgboost as xgb
 
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 LE2I_PROCESSED_DIR = REPO_ROOT / "data" / "processed_le2i"  # Phase 7,docs/PLAN2.md;與 URFD 分開避免混撈

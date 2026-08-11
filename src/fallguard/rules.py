@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .fsm import FSMConfig
 from .features import FrameFeatures, Window
+from .fsm import FSMConfig
 
 # window_score() 的「整個視窗完全沒偵測到人」哨兵值。語意上是「這個視窗絕不可能是跌倒」,
 # 理論上該用 -inf,但 sklearn 的 average_precision_score/precision_recall_curve 不接受

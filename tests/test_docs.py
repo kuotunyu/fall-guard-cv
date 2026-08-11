@@ -55,3 +55,14 @@ def test_plan_has_decision_log_and_phase_sections():
     assert "Decision Log" in text
     for phase_marker in ["Phase 0", "Phase 1", "Phase 2", "Phase 3", "Phase 4"]:
         assert phase_marker in text, f"docs/PLAN.md 缺少 {phase_marker} 段落"
+
+
+def test_ci_enforces_locked_quality_gates():
+    workflow = _read(REPO_ROOT / ".github" / "workflows" / "test.yml")
+    for command in [
+        "uv sync --locked",
+        "uv run ruff check .",
+        "uv run pytest -q",
+        "uv run python scripts/check_public_text.py --tracked",
+    ]:
+        assert command in workflow, f"CI 缺少品質門檻：{command}"
