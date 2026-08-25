@@ -69,6 +69,8 @@ flowchart LR
 
 URFD 調整後直接在 Le2i 測試：事件級 Sensitivity **0.559**（95% CI 0.47–0.64），Specificity **0.000**（95% CI 0.00–0.56）。Le2i 測試集雖有 130 段影片，但非跌倒樣本只有 **3 段 ADL**、總長 97.8 秒，因此 specificity 與 FP/hour 都極不穩定。這個結果揭露了明顯的跨場域泛化缺口，而不是可部署證明。
 
+[Failure analysis case study](docs/FAILURE_ANALYSIS_CASE_STUDY.md) 將這個未經 Le2i 調參補救的負面結果整理成可稽核的工程案例。
+
 完整可追溯結果：
 
 - [規則基線、事件級評估與限制](docs/results/rule_baseline.md)
