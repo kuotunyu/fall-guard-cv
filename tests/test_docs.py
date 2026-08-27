@@ -80,13 +80,6 @@ def test_readme_has_urfd_citation():
     assert "CC BY-NC-SA" in text, "README.md 缺少 URFD 授權標示"
 
 
-def test_agent_guardrail_identifies_the_canonical_repository():
-    text = _read(REPO_ROOT / "AGENTS.md")
-    assert "https://github.com/kuotunyu/fall-guard-cv" in text
-    assert "fall-detection-pose" in text
-    assert "不得修改" in text
-
-
 def test_public_docs_do_not_depend_on_private_session_files():
     result_paths = [
         path

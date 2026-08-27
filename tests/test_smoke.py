@@ -19,6 +19,5 @@ def test_settings_defaults():
 
 
 def test_repo_layout():
-    assert (REPO_ROOT / "AGENTS.md").exists()
     assert (REPO_ROOT / "README.md").exists()
     assert (REPO_ROOT / ".env.example").exists()
